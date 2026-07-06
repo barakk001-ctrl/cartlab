@@ -57,10 +57,9 @@ function ExportModal({ lang, list, onClose }) {
               {t('export_setup_title', lang)}
             </summary>
             <ol className="text-xs opacity-75 mt-2 space-y-1.5 list-decimal ps-4 leading-relaxed">
-              <li>{t('export_step1', lang)}</li>
-              <li>{t('export_step2', lang)}</li>
-              <li>{t('export_step3', lang)}</li>
-              <li>{t('export_step4', lang)}</li>
+              {[1, 2, 3, 4, 5, 6].map((n) => (
+                <li key={n}>{t(`export_step${n}`, lang)}</li>
+              ))}
             </ol>
           </details>
         )}

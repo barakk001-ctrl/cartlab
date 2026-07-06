@@ -1,8 +1,9 @@
 // ------------------------------------------------------------
 // Export to Apple Reminders via a one-time "CartLab" Shortcut (same trick as
-// FitLab's phone timer). The Shortcut receives the unbought items as text,
-// one per line, and adds each as a native reminder — those live in the iOS
-// Reminders app and can appear on the lock screen.
+// FitLab's phone timer). The Shortcut receives the list NAME as the first
+// line and the unbought items as the following lines; it files each item as
+// a native reminder into the Reminders list with that name — so every CartLab
+// list gets its own folder in the Reminders app (and the lock screen).
 //
 // In a browser tab we use x-callback to return to the tab. In the INSTALLED
 // home-screen app we omit the return URL — iOS can't deep-link back into a
@@ -21,7 +22,8 @@ function buildExportText(list) {
 
 function sendToAppleReminders(list) {
   try {
-    const text = encodeURIComponent(buildExportText(list));
+    // First line: target Reminders list name. Rest: one item per line.
+    const text = encodeURIComponent(`${list.name}\n${buildExportText(list)}`);
     const name = encodeURIComponent(SHORTCUT_NAME);
     if (isStandalone()) {
       window.location.href = `shortcuts://run-shortcut?name=${name}&input=text&text=${text}`;

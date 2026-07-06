@@ -23,12 +23,14 @@ Note: Railway's filesystem is ephemeral across **deploys**, so redeploying drops
 
 ## Apple Reminders export — one-time Shortcut setup
 
-The app launches a Shortcut named **CartLab** and passes it the unbought items as text, one per line. Create it once on the iPhone:
+The app launches a Shortcut named **CartLab** and passes it text where the **first line is the list name** and each following line is an unbought item. The Shortcut files the items into the Reminders list with that name — so every CartLab list gets its own list ("directory") in the Reminders app. Create it once on the iPhone:
 
-1. Open the **Shortcuts** app and tap **+**.
-2. Name the shortcut exactly **CartLab**.
-3. Add a **Split Text** action — Separator: **New Lines** (input: Shortcut Input).
-4. Add **Repeat with Each** over the split text; inside the repeat add **Add New Reminder** with the **Repeat Item** as the title (pick whatever Reminders list you like, e.g. "Shopping").
+1. Open the **Shortcuts** app, tap **+**, and name the shortcut exactly **CartLab**.
+2. Add a **Split Text** action — Separator: **New Lines** (input: Shortcut Input).
+3. Add **Get Item from List** — **First Item** (that's the list name).
+4. Add **Get Item from List** again — **Items in Range**: 2 to 500.
+5. Add **Repeat with Each** over the range items; inside it add **Add New Reminder** — Title: **Repeat Item**; for the List field tap it → **Select Variable** → the **First Item** from step 3.
+6. In the **Reminders** app, create a list with the same name as your CartLab list once (tap "Add List") — Shortcuts matches the list by name but can't create it.
 
 The app shows these same steps in the export dialog.
 
