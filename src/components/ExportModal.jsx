@@ -2,14 +2,18 @@ import { ListTodo, Share2, X } from 'lucide-react';
 import { useState } from 'react';
 import { isRTL, t } from '../i18n.js';
 import { IS_IOS } from '../push.js';
+import { loadRemindersListName, saveRemindersListName } from '../storage.js';
 import { sendToAppleReminders, shareList } from '../appleReminders.js';
 
 function ExportModal({ lang, list, onClose }) {
   const [copied, setCopied] = useState(false);
+  // Target Reminders list — remembered across exports (e.g. "קניות").
+  const [target, setTarget] = useState(() => loadRemindersListName() || list.name);
   const hasItems = list.items.some((i) => !i.checked);
 
   const send = () => {
-    sendToAppleReminders(list);
+    saveRemindersListName(target.trim());
+    sendToAppleReminders(list, target);
     onClose();
   };
 
@@ -49,6 +53,20 @@ function ExportModal({ lang, list, onClose }) {
           <p className="text-xs bg-leaf/10 text-leaf rounded-xl px-3 py-2.5 mb-3 leading-relaxed">
             {t('export_not_ios', lang)}
           </p>
+        )}
+
+        {IS_IOS && (
+          <label className="block mb-3">
+            <span className="f-mono text-[10px] uppercase tracking-[0.2em] opacity-55">
+              {t('export_list_label', lang)}
+            </span>
+            <input
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              placeholder={list.name}
+              className="mt-1 w-full bg-white/70 border border-ink/15 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-leaf"
+            />
+          </label>
         )}
 
         {IS_IOS && (

@@ -6,6 +6,7 @@
 
 const LISTS_KEY = 'cartlab:lists';
 const LANG_KEY = 'cartlab:lang';
+const REMLIST_KEY = 'cartlab:remlist'; // target Reminders list for Apple export
 
 // list  = { id, name, createdAt, reminderAt: number|null, items: Item[] }
 // item  = { id, name, qty, checked, hasPhoto }
@@ -43,4 +44,12 @@ function saveLang(lang) {
   try { window.localStorage.setItem(LANG_KEY, lang); } catch {}
 }
 
-export { uid, loadLists, saveLists, loadLang, saveLang };
+function loadRemindersListName() {
+  try { return window.localStorage.getItem(REMLIST_KEY) || ''; } catch { return ''; }
+}
+
+function saveRemindersListName(name) {
+  try { window.localStorage.setItem(REMLIST_KEY, name); } catch {}
+}
+
+export { uid, loadLists, saveLists, loadLang, saveLang, loadRemindersListName, saveRemindersListName };

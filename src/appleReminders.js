@@ -20,10 +20,11 @@ function buildExportText(list) {
     .join('\n');
 }
 
-function sendToAppleReminders(list) {
+function sendToAppleReminders(list, targetListName) {
   try {
     // First line: target Reminders list name. Rest: one item per line.
-    const text = encodeURIComponent(`${list.name}\n${buildExportText(list)}`);
+    const target = (targetListName || '').trim() || list.name;
+    const text = encodeURIComponent(`${target}\n${buildExportText(list)}`);
     const name = encodeURIComponent(SHORTCUT_NAME);
     if (isStandalone()) {
       window.location.href = `shortcuts://run-shortcut?name=${name}&input=text&text=${text}`;
