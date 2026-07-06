@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { isRTL } from './i18n.js';
-import { loadLang, loadLists, saveLang, saveLists, uid } from './storage.js';
-import { deletePhotos } from './db.js';
-import { cancelReminder, scheduleReminder } from './push.js';
+import { loadLang, saveLang } from './storage.js';
+import { useSyncedLists } from './hooks/useSyncedLists.js';
+import { scheduleReminder, reminderIdFor } from './push.js';
 import { buildReminderBody, buildReminderTitle } from './summary.js';
 import ListsView from './views/ListsView.jsx';
 import ListView from './views/ListView.jsx';
@@ -14,23 +14,26 @@ const hashListId = () => {
 
 export default function App() {
   const [lang, setLangState] = useState(loadLang);
-  const [lists, setLists] = useState(() => {
-    // Reminders that already fired are cleared on launch.
-    const now = Date.now();
-    return loadLists().map((l) =>
-      l.reminderAt && l.reminderAt < now ? { ...l, reminderAt: null } : l
-    );
-  });
-  // Notification taps deep-link to /#list=<id>.
+  const {
+    lists,
+    createList, deleteList, setReminder,
+    addItem, patchItem, removeItem, clearChecked,
+    joinList,
+  } = useSyncedLists();
+  // Notification taps and share links both deep-link to /#list=<id>.
   const [activeId, setActiveId] = useState(hashListId);
-
-  useEffect(() => { saveLists(lists); }, [lists]);
 
   useEffect(() => {
     const onHash = () => setActiveId(hashListId());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+
+  // A hash pointing at a list we don't have is a share link — join it. The
+  // list pops into view as soon as the server returns it.
+  useEffect(() => {
+    if (activeId && !lists.some((l) => l.id === activeId)) joinList(activeId);
+  }, [activeId, lists]);
 
   const openList = (id) => {
     setActiveId(id);
@@ -41,25 +44,6 @@ export default function App() {
   };
 
   const setLang = (l) => { setLangState(l); saveLang(l); };
-
-  const updateList = (id, updater) =>
-    setLists((ls) => ls.map((l) => (l.id === id ? updater(l) : l)));
-
-  const createList = (name) => {
-    const list = { id: uid(), name, createdAt: Date.now(), reminderAt: null, items: [] };
-    setLists((ls) => [list, ...ls]);
-    openList(list.id);
-  };
-
-  const deleteList = (id) => {
-    const list = lists.find((l) => l.id === id);
-    if (list) {
-      deletePhotos(list.items.map((i) => i.id)).catch(() => {});
-      if (list.reminderAt) cancelReminder(list.id);
-    }
-    setLists((ls) => ls.filter((l) => l.id !== id));
-    if (activeId === id) openList(null);
-  };
 
   // Keep scheduled reminders honest: if a list with a future reminder changes
   // (items added, checked off, renamed), re-post the schedule after a debounce
@@ -76,7 +60,7 @@ export default function App() {
         if (syncedRef.current[list.id] === snapshot) continue;
         syncedRef.current[list.id] = snapshot;
         scheduleReminder(
-          list.id, list.reminderAt,
+          reminderIdFor(list.id), list.reminderAt,
           buildReminderTitle(list), buildReminderBody(list, lang),
           `/#list=${list.id}`,
         );
@@ -95,15 +79,19 @@ export default function App() {
             lang={lang}
             list={active}
             onBack={() => openList(null)}
-            onChange={(updater) => updateList(active.id, updater)}
-            onDelete={() => deleteList(active.id)}
+            onAddItem={(name) => addItem(active.id, name)}
+            onPatchItem={(itemId, patch) => patchItem(active.id, itemId, patch)}
+            onRemoveItem={(itemId) => removeItem(active.id, itemId)}
+            onClearChecked={() => clearChecked(active.id)}
+            onSetReminder={(at) => setReminder(active.id, at)}
+            onDelete={() => { deleteList(active.id); openList(null); }}
           />
         ) : (
           <ListsView
             lang={lang}
             setLang={setLang}
             lists={lists}
-            onCreate={createList}
+            onCreate={(name) => openList(createList(name))}
             onOpen={openList}
             onDelete={deleteList}
           />

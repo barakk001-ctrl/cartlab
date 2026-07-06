@@ -5,7 +5,7 @@
   "type": "module",
   "description": "CartLab — shopping lists with photos and lock-screen reminders. Bilingual (EN/HE), installable PWA.",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "dev": "vite",

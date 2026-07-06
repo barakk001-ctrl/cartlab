@@ -56,6 +56,8 @@ const STRINGS = {
     export_copied: 'Copied!',
     export_empty: 'Everything is bought — nothing to send.',
     export_not_ios: 'Apple Reminders export works on iPhone/iPad. Here you can share or copy the list instead.',
+    share_list: 'Share list',
+    share_copied: 'Link copied!',
     lang_toggle: 'עברית',
   },
   he: {
@@ -111,6 +113,8 @@ const STRINGS = {
     export_copied: 'הועתק!',
     export_empty: 'הכל נקנה — אין מה לשלוח.',
     export_not_ios: 'ייצוא לתזכורות אפל עובד באייפון/אייפד. כאן אפשר לשתף או להעתיק את הרשימה במקום.',
+    share_list: 'שתף רשימה',
+    share_copied: 'הקישור הועתק!',
     lang_toggle: 'English',
   },
 };

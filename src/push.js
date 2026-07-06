@@ -8,6 +8,12 @@
 // from a user gesture inside the installed app.
 // ------------------------------------------------------------
 
+import { getDeviceId } from './sync.js';
+
+// Reminder ids are per-device: on a shared list, every device that has seen
+// the reminder schedules its own push, so both partners' phones light up.
+const reminderIdFor = (listId) => `${listId}.${getDeviceId()}`;
+
 const IS_IOS = typeof navigator !== 'undefined' &&
   (/iP(ad|hone|od)/.test(navigator.userAgent) ||
    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
@@ -79,4 +85,4 @@ function cancelReminder(id) {
   } catch {}
 }
 
-export { IS_IOS, isStandalone, ensureNotifyPermission, scheduleReminder, cancelReminder };
+export { IS_IOS, isStandalone, ensureNotifyPermission, scheduleReminder, cancelReminder, reminderIdFor };

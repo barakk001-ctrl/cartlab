@@ -1,7 +1,7 @@
 import { Bell, BellOff, X } from 'lucide-react';
 import { useState } from 'react';
 import { isRTL, t } from '../i18n.js';
-import { IS_IOS, isStandalone, ensureNotifyPermission, scheduleReminder, cancelReminder } from '../push.js';
+import { IS_IOS, isStandalone, ensureNotifyPermission, scheduleReminder, cancelReminder, reminderIdFor } from '../push.js';
 import { buildReminderBody, buildReminderTitle } from '../summary.js';
 
 // datetime-local wants "YYYY-MM-DDTHH:mm" in local time.
@@ -40,7 +40,7 @@ function ReminderModal({ lang, list, onClose, onSet }) {
       return;
     }
     const ok = await scheduleReminder(
-      list.id, at,
+      reminderIdFor(list.id), at,
       buildReminderTitle(list), buildReminderBody(list, lang),
       `/#list=${list.id}`,
     );
@@ -54,7 +54,7 @@ function ReminderModal({ lang, list, onClose, onSet }) {
   };
 
   const remove = () => {
-    cancelReminder(list.id);
+    cancelReminder(reminderIdFor(list.id));
     onSet(null);
     onClose();
   };

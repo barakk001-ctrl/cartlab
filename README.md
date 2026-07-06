@@ -9,7 +9,15 @@ Shopping lists with photos and **lock-screen reminders**. Bilingual (EN/HE with 
 - **Photo per item** — tap the camera square on any item; on iPhone this offers *Take Photo / Photo Library*. Photos are downscaled to a small JPEG and stored on-device in IndexedDB (never uploaded).
 - **Lock-screen reminders** — pick a date & time per list; a push notification arrives with the list name and the items still left to buy (e.g. `🛒 Groceries — Milk ×2 · Eggs · Bread`). Tapping it opens the app on that list. If you keep editing the list after setting the reminder, the notification text is kept in sync automatically.
 - **Export to Apple Reminders** — the "Apple Reminders" button on a list sends every unbought item into the native iOS Reminders app via a one-time Shortcut (see below). Native reminders sync across devices and appear on the lock screen. On non-iOS devices the button shares/copies the list instead.
-- **Offline** — service worker caches the app shell; lists live in localStorage.
+- **Shared lists** — every list lives on the server; the "Share list" button sends a link (`/#list=<id>`), and anyone who opens it joins the list. Edits sync live between devices (SSE change feed), per item, so two people can shop the same list at once without overwriting each other.
+- **Offline** — service worker caches the app shell; lists are cached in localStorage and edits made offline are queued and replayed to the server on reconnect. Item photos are the one thing that stays device-local (never uploaded).
+
+## How sharing/sync works
+
+- The server (`store.mjs`) keeps lists in SQLite via Node's built-in `node:sqlite` (no native deps, Node ≥ 22.13). The DB lives in `DATA_DIR`.
+- A list's id **is** the sharing capability — there are no accounts. The share link deep-links to `/#list=<id>`; opening it fetches the list and adds it to "My lists" on that device.
+- Writes are per-item, last-write-wins (`PUT /api/lists/:id/items/:itemId`), so concurrent edits to different items never conflict. Every mutation bumps the list `version` and is broadcast over `GET /api/events` (SSE); other devices refetch only when the version moved.
+- The client (`src/hooks/useSyncedLists.js`) applies edits optimistically, persists a mutation queue in localStorage, and replays it in order when connectivity returns.
 
 ## How reminders work
 
@@ -19,7 +27,7 @@ Same mechanism as FitLab's rest-timer pushes, extended for long delays:
 2. The server persists it to `reminders.json` (so restarts re-arm pending reminders) and sends the push via the push service at the right moment.
 3. The service worker shows the notification — on the lock screen, even if the app has been closed for days.
 
-Note: Railway's filesystem is ephemeral across **deploys**, so redeploying drops pending reminders (restart/crash does not).
+Note: without a volume, Railway's filesystem is ephemeral across **deploys** — see the volume step under Deploy, which makes both lists and pending reminders survive.
 
 ## Apple Reminders export — one-time Shortcut setup
 
@@ -51,7 +59,8 @@ For UI development with hot reload: `npm run dev` (Vite on :5173, proxies `/api`
 1. Push this folder to a GitHub repo and create a Railway service from it (`railway.json` / `nixpacks.toml` are already set up — same as FitLab).
 2. In Railway → Variables, add the three values from `.env`:
    `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`.
-3. Deploy. `/api/health` is the healthcheck.
+3. **Attach a volume** (service → right-click → Attach Volume), mount it at e.g. `/data`, and set `DATA_DIR=/data`. This is where the shared-lists SQLite DB and `reminders.json` live — without it, every deploy wipes all lists.
+4. Deploy. `/api/health` is the healthcheck.
 
 ## Install on iPhone (required for reminders)
 

@@ -1,5 +1,6 @@
 [phases.setup]
-nixPkgs = ["nodejs_20"]
+# Node >= 22.13 for the built-in node:sqlite used by store.mjs
+nixPkgs = ["nodejs_22"]
 
 [phases.install]
 cmds = ["npm install --no-audit --no-fund"]

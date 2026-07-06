@@ -1,18 +1,17 @@
-import { Bell, ChevronLeft, ChevronRight, ListTodo, Plus, Trash2 } from 'lucide-react';
+import { Bell, ChevronLeft, ChevronRight, ListTodo, Plus, Share2, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { formatWhen, isRTL, t } from '../i18n.js';
-import { uid } from '../storage.js';
-import { deletePhoto, deletePhotos } from '../db.js';
 import ItemRow from '../components/ItemRow.jsx';
 import ReminderModal from '../components/ReminderModal.jsx';
 import PhotoModal from '../components/PhotoModal.jsx';
 import ExportModal from '../components/ExportModal.jsx';
 
-function ListView({ lang, list, onBack, onChange, onDelete }) {
+function ListView({ lang, list, onBack, onAddItem, onPatchItem, onRemoveItem, onClearChecked, onSetReminder, onDelete }) {
   const [draft, setDraft] = useState('');
   const [reminderOpen, setReminderOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [photoItem, setPhotoItem] = useState(null); // item shown in the photo modal
+  const [shareCopied, setShareCopied] = useState(false);
 
   const BackIcon = isRTL(lang) ? ChevronRight : ChevronLeft;
   const items = list.items;
@@ -22,36 +21,31 @@ function ListView({ lang, list, onBack, onChange, onDelete }) {
   const addItem = () => {
     const name = draft.trim();
     if (!name) return;
-    onChange((l) => ({
-      ...l,
-      items: [...l.items, { id: uid(), name, qty: 1, checked: false, hasPhoto: false }],
-    }));
+    onAddItem(name);
     setDraft('');
   };
 
-  const patchItem = (id, patch) =>
-    onChange((l) => ({
-      ...l,
-      items: l.items.map((i) => (i.id === id ? { ...i, ...patch } : i)),
-    }));
-
-  const removeItem = (id) => {
-    deletePhoto(id).catch(() => {});
-    onChange((l) => ({ ...l, items: l.items.filter((i) => i.id !== id) }));
-  };
-
-  const clearChecked = () => {
-    deletePhotos(inCart.map((i) => i.id)).catch(() => {});
-    onChange((l) => ({ ...l, items: l.items.filter((i) => !i.checked) }));
+  // Anyone who opens the link joins the list and edits live.
+  const shareList = async () => {
+    const url = `${window.location.origin}/#list=${list.id}`;
+    if (navigator.share) {
+      try { await navigator.share({ title: list.name, url }); } catch {}
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {}
   };
 
   const rowProps = (item) => ({
     item,
     lang,
-    onToggle: () => patchItem(item.id, { checked: !item.checked }),
-    onQty: (delta) => patchItem(item.id, { qty: Math.max(1, item.qty + delta) }),
-    onRemove: () => removeItem(item.id),
-    onPhotoSaved: () => patchItem(item.id, { hasPhoto: true, photoRev: (item.photoRev || 0) + 1 }),
+    onToggle: () => onPatchItem(item.id, { checked: !item.checked }),
+    onQty: (delta) => onPatchItem(item.id, { qty: Math.max(1, item.qty + delta) }),
+    onRemove: () => onRemoveItem(item.id),
+    onPhotoSaved: () => onPatchItem(item.id, { hasPhoto: true, photoRev: (item.photoRev || 0) + 1 }),
     onOpenPhoto: () => setPhotoItem(item),
   });
 
@@ -94,6 +88,13 @@ function ListView({ lang, list, onBack, onChange, onDelete }) {
           >
             <ListTodo size={15} strokeWidth={2.5} />
             {t('export_btn', lang)}
+          </button>
+          <button
+            onClick={shareList}
+            className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold border border-ink/25 text-ink/70"
+          >
+            <Share2 size={15} strokeWidth={2.5} />
+            {shareCopied ? t('share_copied', lang) : t('share_list', lang)}
           </button>
         </div>
       </header>
@@ -138,7 +139,7 @@ function ListView({ lang, list, onBack, onChange, onDelete }) {
             <h2 className="f-mono text-[11px] uppercase tracking-[0.25em] opacity-50">
               {t('in_cart', lang)} — {inCart.length}
             </h2>
-            <button onClick={clearChecked} className="text-xs text-rust font-semibold">
+            <button onClick={onClearChecked} className="text-xs text-rust font-semibold">
               {t('clear_checked', lang)}
             </button>
           </div>
@@ -153,7 +154,7 @@ function ListView({ lang, list, onBack, onChange, onDelete }) {
           lang={lang}
           list={list}
           onClose={() => setReminderOpen(false)}
-          onSet={(at) => onChange((l) => ({ ...l, reminderAt: at }))}
+          onSet={onSetReminder}
         />
       )}
 
@@ -166,8 +167,8 @@ function ListView({ lang, list, onBack, onChange, onDelete }) {
           lang={lang}
           item={items.find((i) => i.id === photoItem.id) || photoItem}
           onClose={() => setPhotoItem(null)}
-          onReplaced={() => patchItem(photoItem.id, { hasPhoto: true, photoRev: ((items.find((i) => i.id === photoItem.id)?.photoRev) || 0) + 1 })}
-          onRemoved={() => { patchItem(photoItem.id, { hasPhoto: false }); setPhotoItem(null); }}
+          onReplaced={() => onPatchItem(photoItem.id, { hasPhoto: true, photoRev: ((items.find((i) => i.id === photoItem.id)?.photoRev) || 0) + 1 })}
+          onRemoved={() => { onPatchItem(photoItem.id, { hasPhoto: false }); setPhotoItem(null); }}
         />
       )}
     </div>

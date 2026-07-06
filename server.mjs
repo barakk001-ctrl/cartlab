@@ -9,8 +9,13 @@ import webpush from 'web-push';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { openStore } from './store.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// All persistent state (lists DB, reminders) lives here. On Railway, mount a
+// volume and set DATA_DIR to its mount path so data survives deploys.
+const dataDir = process.env.DATA_DIR || __dirname;
 
 // Minimal .env loader (local dev only — Railway injects real env vars).
 const envFile = path.join(__dirname, '.env');
@@ -30,7 +35,7 @@ if (pushEnabled) {
 }
 
 const app = express();
-app.use(express.json({ limit: '16kb' }));
+app.use(express.json({ limit: '256kb' })); // a full 500-item list upload is ~50kb
 
 // ------------------------------------------------------------
 // Reminder store. Unlike FitLab's 30-180s rest timers, shopping reminders are
@@ -38,7 +43,7 @@ app.use(express.json({ limit: '16kb' }));
 // flushed to reminders.json and re-armed on boot. (Railway's filesystem is
 // ephemeral across deploys — an acceptable trade-off for a personal app.)
 // ------------------------------------------------------------
-const STORE_FILE = path.join(__dirname, 'reminders.json');
+const STORE_FILE = path.join(dataDir, 'reminders.json');
 const MAX_PENDING = 2000;
 const MAX_AHEAD_MS = 45 * 86400000;      // scheduling horizon: 45 days
 const STALE_MS = 12 * 3600000;           // fire reminders missed by <12h on boot, drop older
@@ -139,6 +144,173 @@ app.post('/api/push/cancel', (req, res) => {
   if (existed) flush();
   res.json({ ok: true, cancelled: existed });
 });
+
+// ------------------------------------------------------------
+// Shared lists API. A list id is the sharing capability: anyone with the link
+// (/#list=<id>) can read and edit that list — no accounts. Writes are
+// per-item (last-write-wins), so two people editing the same list at once
+// don't clobber each other's changes. Every mutation bumps the list version
+// and is broadcast over SSE so other open devices refetch immediately.
+// ------------------------------------------------------------
+const store = openStore(dataDir);
+
+const LIST_ID_RE = /^[a-z0-9]{6,40}$/i;
+const parseName = (v) =>
+  typeof v === 'string' && v.trim() && v.trim().length <= 200 ? v.trim() : null;
+// undefined = invalid, null = no reminder
+const parseTime = (v) => (v == null ? null : Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : undefined);
+
+function parseItem(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  if (typeof raw.id !== 'string' || !LIST_ID_RE.test(raw.id)) return null;
+  const name = parseName(raw.name);
+  if (!name) return null;
+  return {
+    id: raw.id,
+    name,
+    qty: Number.isInteger(raw.qty) ? Math.min(Math.max(raw.qty, 1), 999) : 1,
+    checked: !!raw.checked,
+    createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : null,
+  };
+}
+
+const guard = (fn) => (req, res) => {
+  try {
+    fn(req, res);
+  } catch (e) {
+    res.status(e.status || 500).json({ ok: false, error: e.status ? e.message : 'server error' });
+  }
+};
+
+const requireListId = (req, res) => {
+  if (LIST_ID_RE.test(req.params.id)) return req.params.id;
+  res.status(400).json({ ok: false, error: 'bad id' });
+  return null;
+};
+
+// SSE change feed: one connection subscribes to all the lists a device knows.
+const sseClients = new Set(); // { ids: Set<listId>, res }
+function broadcast(listId, payload) {
+  const msg = `data: ${JSON.stringify({ id: listId, ...payload })}\n\n`;
+  for (const c of sseClients) {
+    if (c.ids.has(listId)) {
+      try { c.res.write(msg); } catch {}
+    }
+  }
+}
+setInterval(() => {
+  for (const c of sseClients) {
+    try { c.res.write(': ping\n\n'); } catch {}
+  }
+}, 25000).unref();
+
+app.get('/api/events', (req, res) => {
+  const ids = String(req.query.lists || '').split(',').filter((s) => LIST_ID_RE.test(s)).slice(0, 100);
+  if (!ids.length) return res.status(400).json({ ok: false, error: 'no lists' });
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.write(': connected\n\n');
+  const client = { ids: new Set(ids), res };
+  sseClients.add(client);
+  req.on('close', () => sseClients.delete(client));
+});
+
+app.get('/api/lists/:id', guard((req, res) => {
+  const id = requireListId(req, res);
+  if (!id) return;
+  const list = store.getList(id);
+  if (!list) return res.status(404).json({ ok: false, error: 'not found' });
+  const v = Number(req.query.v);
+  if (Number.isFinite(v) && v === list.version) return res.json({ unchanged: true, version: list.version });
+  res.json(list);
+}));
+
+// Create, or fully replace (first upload of a device-local list).
+app.put('/api/lists/:id', guard((req, res) => {
+  const id = requireListId(req, res);
+  if (!id) return;
+  const { name, createdAt, reminderAt, items } = req.body || {};
+  const cleanName = parseName(name);
+  const when = parseTime(reminderAt);
+  const rawItems = Array.isArray(items) ? items : [];
+  const cleanItems = rawItems.map(parseItem);
+  if (!cleanName || when === undefined || rawItems.length > 500 || cleanItems.some((i) => !i)) {
+    return res.status(400).json({ ok: false, error: 'bad payload' });
+  }
+  const version = store.upsertList(id, {
+    name: cleanName,
+    createdAt: Number.isFinite(createdAt) ? createdAt : null,
+    reminderAt: when,
+    items: cleanItems,
+  });
+  broadcast(id, { version });
+  res.json({ ok: true, version });
+}));
+
+app.patch('/api/lists/:id', guard((req, res) => {
+  const id = requireListId(req, res);
+  if (!id) return;
+  const body = req.body || {};
+  const patch = {};
+  if ('name' in body) {
+    patch.name = parseName(body.name);
+    if (!patch.name) return res.status(400).json({ ok: false, error: 'bad name' });
+  }
+  if ('reminderAt' in body) {
+    patch.reminderAt = parseTime(body.reminderAt);
+    if (patch.reminderAt === undefined) return res.status(400).json({ ok: false, error: 'bad time' });
+  }
+  const version = store.patchList(id, patch);
+  if (version === null) return res.status(404).json({ ok: false, error: 'not found' });
+  broadcast(id, { version });
+  res.json({ ok: true, version });
+}));
+
+app.delete('/api/lists/:id', guard((req, res) => {
+  const id = requireListId(req, res);
+  if (!id) return;
+  store.deleteList(id);
+  broadcast(id, { deleted: true });
+  res.json({ ok: true });
+}));
+
+// Per-item upsert — add and edit both land here (last write wins per item).
+app.put('/api/lists/:id/items/:itemId', guard((req, res) => {
+  const id = requireListId(req, res);
+  if (!id) return;
+  const item = parseItem({ ...(req.body || {}), id: req.params.itemId });
+  if (!item) return res.status(400).json({ ok: false, error: 'bad item' });
+  const version = store.upsertItem(id, item);
+  if (version === null) return res.status(404).json({ ok: false, error: 'not found' });
+  broadcast(id, { version });
+  res.json({ ok: true, version });
+}));
+
+app.delete('/api/lists/:id/items/:itemId', guard((req, res) => {
+  const id = requireListId(req, res);
+  if (!id) return;
+  if (!LIST_ID_RE.test(req.params.itemId)) return res.status(400).json({ ok: false, error: 'bad item id' });
+  const version = store.deleteItems(id, [req.params.itemId]);
+  if (version === null) return res.status(404).json({ ok: false, error: 'not found' });
+  broadcast(id, { version });
+  res.json({ ok: true, version });
+}));
+
+// Bulk delete ("clear bought items") — one round-trip, one version bump.
+app.post('/api/lists/:id/items/bulk-delete', guard((req, res) => {
+  const id = requireListId(req, res);
+  if (!id) return;
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((s) => typeof s === 'string' && LIST_ID_RE.test(s)) : null;
+  if (!ids || ids.length > 500) return res.status(400).json({ ok: false, error: 'bad ids' });
+  const version = store.deleteItems(id, ids);
+  if (version === null) return res.status(404).json({ ok: false, error: 'not found' });
+  broadcast(id, { version });
+  res.json({ ok: true, version });
+}));
 
 // Static app: hashed assets cache forever, everything else revalidates.
 const dist = path.join(__dirname, 'dist');
