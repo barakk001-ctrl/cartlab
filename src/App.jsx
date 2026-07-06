@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { isRTL } from './i18n.js';
 import { loadLang, saveLang } from './storage.js';
 import { useSyncedLists } from './hooks/useSyncedLists.js';
@@ -18,8 +18,15 @@ export default function App() {
     lists,
     createList, deleteList, setReminder,
     addItem, patchItem, removeItem, clearChecked,
+    setItemPhoto, removeItemPhoto,
     joinList,
   } = useSyncedLists();
+
+  // Every item name the user has ever put on a list — feeds autocomplete.
+  const knownNames = useMemo(
+    () => [...new Set(lists.flatMap((l) => l.items.map((i) => i.name)))],
+    [lists],
+  );
   // Notification taps and share links both deep-link to /#list=<id>.
   const [activeId, setActiveId] = useState(hashListId);
 
@@ -78,12 +85,15 @@ export default function App() {
           <ListView
             lang={lang}
             list={active}
+            knownNames={knownNames}
             onBack={() => openList(null)}
             onAddItem={(name) => addItem(active.id, name)}
             onPatchItem={(itemId, patch) => patchItem(active.id, itemId, patch)}
             onRemoveItem={(itemId) => removeItem(active.id, itemId)}
             onClearChecked={() => clearChecked(active.id)}
             onSetReminder={(at) => setReminder(active.id, at)}
+            onSetPhoto={(itemId, blob) => setItemPhoto(active.id, itemId, blob)}
+            onRemovePhoto={(itemId) => removeItemPhoto(active.id, itemId)}
             onDelete={() => { deleteList(active.id); openList(null); }}
           />
         ) : (

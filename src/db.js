@@ -30,8 +30,16 @@ async function withStore(mode, fn) {
   });
 }
 
-const savePhoto = (itemId, blob) => withStore('readwrite', (s) => s.put(blob, itemId));
-const getPhoto = (itemId) => withStore('readonly', (s) => s.get(itemId));
+// Entries are { blob, rev } — rev is the server photo revision the blob
+// corresponds to (0 = not uploaded yet). Early versions stored the raw Blob;
+// normalize those on read.
+const savePhoto = (itemId, blob, rev = 0) => withStore('readwrite', (s) => s.put({ blob, rev }, itemId));
+const getPhoto = (itemId) =>
+  withStore('readonly', (s) => s.get(itemId)).then((entry) => {
+    if (!entry) return null;
+    if (entry instanceof Blob) return { blob: entry, rev: 0 };
+    return entry.blob ? entry : null;
+  });
 const deletePhoto = (itemId) => withStore('readwrite', (s) => s.delete(itemId));
 const deletePhotos = (itemIds) =>
   withStore('readwrite', (s) => { for (const id of itemIds) s.delete(id); });

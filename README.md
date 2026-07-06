@@ -6,11 +6,12 @@ Shopping lists with photos and **lock-screen reminders**. Bilingual (EN/HE with 
 
 - **Multiple lists** — create, open, delete. Each list shows how many items are left to buy.
 - **Items with quantities** — +/− stepper per item, check items off into an "In cart" section, clear bought items in one tap.
-- **Photo per item** — tap the camera square on any item; on iPhone this offers *Take Photo / Photo Library*. Photos are downscaled to a small JPEG and stored on-device in IndexedDB (never uploaded).
+- **Photo per item** — tap the camera square on any item; on iPhone this offers *Take Photo / Photo Library*. Photos are downscaled to a small JPEG, cached on-device in IndexedDB, and synced to the server so everyone sharing the list sees them.
+- **Autocomplete** — typing in the add-item box suggests from a built-in catalog of ~150 common groceries (EN + HE, matched in both languages) plus everything you've added before; tap a suggestion to add it instantly.
 - **Lock-screen reminders** — pick a date & time per list; a push notification arrives with the list name and the items still left to buy (e.g. `🛒 Groceries — Milk ×2 · Eggs · Bread`). Tapping it opens the app on that list. If you keep editing the list after setting the reminder, the notification text is kept in sync automatically.
 - **Export to Apple Reminders** — the "Apple Reminders" button on a list sends every unbought item into the native iOS Reminders app via a one-time Shortcut (see below). Native reminders sync across devices and appear on the lock screen. On non-iOS devices the button shares/copies the list instead.
 - **Shared lists** — every list lives on the server; the "Share list" button sends a link (`/#list=<id>`), and anyone who opens it joins the list. Edits sync live between devices (SSE change feed), per item, so two people can shop the same list at once without overwriting each other.
-- **Offline** — service worker caches the app shell; lists are cached in localStorage and edits made offline are queued and replayed to the server on reconnect. Item photos are the one thing that stays device-local (never uploaded).
+- **Offline** — service worker caches the app shell; lists are cached in localStorage and edits made offline are queued and replayed to the server on reconnect. Photos taken offline upload when connectivity returns.
 
 ## How sharing/sync works
 
@@ -18,6 +19,7 @@ Shopping lists with photos and **lock-screen reminders**. Bilingual (EN/HE with 
 - A list's id **is** the sharing capability — there are no accounts. The share link deep-links to `/#list=<id>`; opening it fetches the list and adds it to "My lists" on that device.
 - Writes are per-item, last-write-wins (`PUT /api/lists/:id/items/:itemId`), so concurrent edits to different items never conflict. Every mutation bumps the list `version` and is broadcast over `GET /api/events` (SSE); other devices refetch only when the version moved.
 - The client (`src/hooks/useSyncedLists.js`) applies edits optimistically, persists a mutation queue in localStorage, and replays it in order when connectivity returns.
+- Photos: the compressed JPEG caches in IndexedDB and uploads via a separate queue to `PUT /api/lists/:id/items/:itemId/photo`; the server stores files under `DATA_DIR/photos` and owns `hasPhoto`/`photoRev`, which cache-bust the immutable photo URLs on other devices.
 
 ## How reminders work
 

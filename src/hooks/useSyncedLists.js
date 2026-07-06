@@ -7,13 +7,15 @@
 // Writes: applied optimistically to local state, enqueued, and replayed to
 //         the server in order. Network failure keeps the op queued (retried
 //         on reconnect); a 4xx drops the op and resyncs that list.
-// Photos never sync — hasPhoto/photoRev are device-local and are re-merged
-// into whatever the server returns.
+// Photos sync too: blobs cache in IndexedDB, uploads/removals queue
+// separately (the blob can't live in localStorage) and the server owns
+// hasPhoto/photoRev — except while this device still has an upload pending,
+// when its local state wins.
 // ------------------------------------------------------------
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../api.js';
 import { loadLists, saveLists, uid } from '../storage.js';
-import { deletePhoto, deletePhotos } from '../db.js';
+import { deletePhoto, deletePhotos, getPhoto, savePhoto } from '../db.js';
 import { cancelReminder, reminderIdFor } from '../push.js';
 import * as sync from '../sync.js';
 
@@ -28,6 +30,8 @@ export function useSyncedLists() {
 
   const listsRef = useRef(lists);
   const queueRef = useRef(sync.loadQueue());
+  const photoQueueRef = useRef(sync.loadPhotoQueue());
+  const photoFlushingRef = useRef(false);
   const versionsRef = useRef(sync.loadVersions());
   const syncedRef = useRef(new Set(sync.loadSynced()));
   const staleRef = useRef(new Set());   // lists that changed remotely while ops were pending
@@ -47,7 +51,9 @@ export function useSyncedLists() {
   const persistSynced = () => sync.saveSynced(syncedRef.current);
   const pendingFor = (listId) => queueRef.current.some((op) => op.listId === listId);
 
-  // Replace local list state with the server's, keeping device-local fields.
+  // Replace local list state with the server's. Photo state comes from the
+  // server unless this device has a photo op still queued for the item — its
+  // local intent (new photo / removal) wins until the op lands.
   const applyServer = (server) => {
     const local = listsRef.current.find((l) => l.id === server.id);
     const merged = {
@@ -56,8 +62,11 @@ export function useSyncedLists() {
       createdAt: server.createdAt,
       reminderAt: normalizeReminder(server.reminderAt),
       items: server.items.map((si) => {
-        const li = local?.items.find((i) => i.id === si.id);
-        return { ...si, hasPhoto: li?.hasPhoto || false, photoRev: li?.photoRev || 0 };
+        if (photoQueueRef.current.some((op) => op.itemId === si.id)) {
+          const li = local?.items.find((i) => i.id === si.id);
+          return { ...si, hasPhoto: li?.hasPhoto || false, photoRev: li?.photoRev || 0 };
+        }
+        return si;
       }),
     };
     versionsRef.current[server.id] = server.version;
@@ -128,7 +137,52 @@ export function useSyncedLists() {
     retryRef.current = setTimeout(() => {
       retryRef.current = null;
       flush();
+      flushPhotos();
     }, RETRY_MS);
+  };
+
+  // Photo uploads/removals replay like the op queue, but blobs come from
+  // IndexedDB. A 4xx means the item/list is gone or rejected — drop the op.
+  const flushPhotos = async () => {
+    if (photoFlushingRef.current) return;
+    photoFlushingRef.current = true;
+    try {
+      while (photoQueueRef.current.length) {
+        const op = photoQueueRef.current[0];
+        op.inFlight = true;
+        try {
+          if (op.remove) {
+            await api.deletePhoto(op.listId, op.itemId);
+          } else {
+            const entry = await getPhoto(op.itemId);
+            if (entry?.blob) {
+              const res = await api.uploadPhoto(op.listId, op.itemId, entry.blob);
+              await savePhoto(op.itemId, entry.blob, res.photoRev).catch(() => {});
+              patchItem(op.listId, op.itemId, { hasPhoto: true, photoRev: res.photoRev });
+              versionsRef.current[op.listId] = res.version;
+              persistVersions();
+            }
+          }
+          photoQueueRef.current.shift();
+          sync.savePhotoQueue(photoQueueRef.current);
+        } catch (e) {
+          if (e instanceof ApiError) {
+            photoQueueRef.current.shift();
+            sync.savePhotoQueue(photoQueueRef.current);
+            staleRef.current.add(op.listId);
+          } else {
+            op.inFlight = false;
+            scheduleRetry();
+            return;
+          }
+        }
+      }
+      const stale = [...staleRef.current];
+      staleRef.current.clear();
+      await Promise.all(stale.map(refetch));
+    } finally {
+      photoFlushingRef.current = false;
+    }
   };
 
   const flush = async () => {
@@ -249,6 +303,24 @@ export function useSyncedLists() {
     );
   };
 
+  // Photo taken/replaced: cache the blob locally (rev 0 = not uploaded yet),
+  // show it immediately, and queue the upload.
+  const setItemPhoto = async (listId, itemId, blob) => {
+    try { await savePhoto(itemId, blob, 0); } catch { return; }
+    patchItem(listId, itemId, { hasPhoto: true, photoRev: 0 });
+    sync.enqueuePhoto(photoQueueRef.current, { listId, itemId });
+    sync.savePhotoQueue(photoQueueRef.current);
+    flushPhotos();
+  };
+
+  const removeItemPhoto = (listId, itemId) => {
+    deletePhoto(itemId).catch(() => {});
+    patchItem(listId, itemId, { hasPhoto: false, photoRev: 0 });
+    sync.enqueuePhoto(photoQueueRef.current, { listId, itemId, remove: true });
+    sync.savePhotoQueue(photoQueueRef.current);
+    flushPhotos();
+  };
+
   // Opening a share link for an unknown list pulls it from the server.
   const joinList = (listId) => {
     if (!listId || listsRef.current.some((l) => l.id === listId)) return;
@@ -301,13 +373,36 @@ export function useSyncedLists() {
     }
     persistQueue();
     flush();
+    flushPhotos();
     refetchAll();
 
-    const onOnline = () => flush();
+    // One-time upload of photos taken before photo sync existed (or left
+    // pending by an interrupted upload): a local rev-0 blob with nothing
+    // queued means the server never received it.
+    (async () => {
+      let added = false;
+      for (const l of listsRef.current) {
+        for (const it of l.items) {
+          if (!it.hasPhoto || photoQueueRef.current.some((op) => op.itemId === it.id)) continue;
+          const entry = await getPhoto(it.id).catch(() => null);
+          if (entry?.blob && !entry.rev) {
+            sync.enqueuePhoto(photoQueueRef.current, { listId: l.id, itemId: it.id });
+            added = true;
+          }
+        }
+      }
+      if (added) {
+        sync.savePhotoQueue(photoQueueRef.current);
+        flushPhotos();
+      }
+    })();
+
+    const onOnline = () => { flush(); flushPhotos(); };
     const onVisible = () => {
       if (document.hidden) return;
       // iOS kills the SSE socket while the PWA is suspended — resync + reopen.
       flush();
+      flushPhotos();
       refetchAll();
       ensureEventSource();
     };
@@ -325,6 +420,7 @@ export function useSyncedLists() {
     lists,
     createList, deleteList, setReminder,
     addItem, patchItem, removeItem, clearChecked,
+    setItemPhoto, removeItemPhoto,
     joinList,
   };
 }

@@ -1,12 +1,16 @@
 import { Bell, ChevronLeft, ChevronRight, ListTodo, Plus, Share2, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { formatWhen, isRTL, t } from '../i18n.js';
+import { suggest } from '../catalog.js';
 import ItemRow from '../components/ItemRow.jsx';
 import ReminderModal from '../components/ReminderModal.jsx';
 import PhotoModal from '../components/PhotoModal.jsx';
 import ExportModal from '../components/ExportModal.jsx';
 
-function ListView({ lang, list, onBack, onAddItem, onPatchItem, onRemoveItem, onClearChecked, onSetReminder, onDelete }) {
+function ListView({
+  lang, list, knownNames, onBack, onAddItem, onPatchItem, onRemoveItem,
+  onClearChecked, onSetReminder, onSetPhoto, onRemovePhoto, onDelete,
+}) {
   const [draft, setDraft] = useState('');
   const [reminderOpen, setReminderOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -18,12 +22,22 @@ function ListView({ lang, list, onBack, onAddItem, onPatchItem, onRemoveItem, on
   const toBuy = items.filter((i) => !i.checked);
   const inCart = items.filter((i) => i.checked);
 
-  const addItem = () => {
-    const name = draft.trim();
-    if (!name) return;
-    onAddItem(name);
+  const addItem = (name = draft) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    onAddItem(trimmed);
     setDraft('');
   };
+
+  // Autocomplete while typing: common groceries + names the user has used
+  // before, minus what's already on this list.
+  const suggestions = useMemo(
+    () => suggest(draft, lang, {
+      history: knownNames || [],
+      exclude: items.map((i) => i.name),
+    }),
+    [draft, lang, knownNames, items],
+  );
 
   // Anyone who opens the link joins the list and edits live.
   const shareList = async () => {
@@ -42,10 +56,11 @@ function ListView({ lang, list, onBack, onAddItem, onPatchItem, onRemoveItem, on
   const rowProps = (item) => ({
     item,
     lang,
+    listId: list.id,
     onToggle: () => onPatchItem(item.id, { checked: !item.checked }),
     onQty: (delta) => onPatchItem(item.id, { qty: Math.max(1, item.qty + delta) }),
     onRemove: () => onRemoveItem(item.id),
-    onPhotoSaved: () => onPatchItem(item.id, { hasPhoto: true, photoRev: (item.photoRev || 0) + 1 }),
+    onPhoto: (blob) => onSetPhoto(item.id, blob),
     onOpenPhoto: () => setPhotoItem(item),
   });
 
@@ -99,23 +114,40 @@ function ListView({ lang, list, onBack, onAddItem, onPatchItem, onRemoveItem, on
         </div>
       </header>
 
-      {/* Add item */}
-      <div className="flex gap-2 mb-6">
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && addItem()}
-          placeholder={t('add_item_ph', lang)}
-          className="flex-1 bg-white/70 border border-ink/15 rounded-xl px-4 py-3 text-base outline-none focus:border-leaf"
-        />
-        <button
-          onClick={addItem}
-          disabled={!draft.trim()}
-          className="bg-leaf text-cream rounded-xl px-4 py-3 disabled:opacity-40"
-          aria-label={t('add', lang)}
-        >
-          <Plus size={20} strokeWidth={2.5} />
-        </button>
+      {/* Add item, with autocomplete from the catalog + past items */}
+      <div className="relative mb-6">
+        <div className="flex gap-2">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addItem()}
+            placeholder={t('add_item_ph', lang)}
+            className="flex-1 min-w-0 bg-white/70 border border-ink/15 rounded-xl px-4 py-3 text-base outline-none focus:border-leaf"
+          />
+          <button
+            onClick={() => addItem()}
+            disabled={!draft.trim()}
+            className="bg-leaf text-cream rounded-xl px-4 py-3 disabled:opacity-40"
+            aria-label={t('add', lang)}
+          >
+            <Plus size={20} strokeWidth={2.5} />
+          </button>
+        </div>
+        {suggestions.length > 0 && (
+          <div className="absolute top-full inset-x-0 mt-1 z-20 bg-cream border border-ink/15 rounded-xl shadow-lg overflow-hidden">
+            {suggestions.map((name) => (
+              <button
+                key={name}
+                onMouseDown={(e) => e.preventDefault() /* keep the input focused */}
+                onClick={() => addItem(name)}
+                className="w-full text-start px-4 py-2.5 text-[15px] hover:bg-leaf/10 active:bg-leaf/15 border-b border-ink/5 last:border-b-0 flex items-center gap-2"
+              >
+                <Plus size={14} strokeWidth={2.5} className="text-leaf shrink-0" />
+                <span className="truncate">{name}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {items.length === 0 && (
@@ -165,10 +197,11 @@ function ListView({ lang, list, onBack, onAddItem, onPatchItem, onRemoveItem, on
       {photoItem && (
         <PhotoModal
           lang={lang}
+          listId={list.id}
           item={items.find((i) => i.id === photoItem.id) || photoItem}
           onClose={() => setPhotoItem(null)}
-          onReplaced={() => onPatchItem(photoItem.id, { hasPhoto: true, photoRev: ((items.find((i) => i.id === photoItem.id)?.photoRev) || 0) + 1 })}
-          onRemoved={() => { onPatchItem(photoItem.id, { hasPhoto: false }); setPhotoItem(null); }}
+          onReplaced={(blob) => onSetPhoto(photoItem.id, blob)}
+          onRemoved={() => { onRemovePhoto(photoItem.id); setPhotoItem(null); }}
         />
       )}
     </div>

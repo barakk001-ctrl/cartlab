@@ -1,30 +1,25 @@
 import { Camera, Trash2, X } from 'lucide-react';
 import { useRef } from 'react';
 import { isRTL, t } from '../i18n.js';
-import { compressImage, deletePhoto, savePhoto } from '../db.js';
+import { compressImage } from '../db.js';
 import { usePhoto } from '../hooks/usePhoto.js';
 
-function PhotoModal({ lang, item, onClose, onReplaced, onRemoved }) {
+function PhotoModal({ lang, item, listId, onClose, onReplaced, onRemoved }) {
   const fileRef = useRef(null);
-  const url = usePhoto(item.id, item.hasPhoto, item.photoRev || 0);
+  const url = usePhoto(listId, item.id, item.hasPhoto, item.photoRev || 0);
 
   const replace = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     try {
-      const blob = await compressImage(file);
-      await savePhoto(item.id, blob);
-      onReplaced();
+      onReplaced(await compressImage(file));
     } catch (err) {
       console.error('photo replace failed:', err);
     }
   };
 
-  const remove = () => {
-    deletePhoto(item.id).catch(() => {});
-    onRemoved();
-  };
+  const remove = () => onRemoved();
 
   return (
     <div

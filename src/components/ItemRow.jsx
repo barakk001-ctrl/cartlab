@@ -1,21 +1,19 @@
 import { Camera, Check, Minus, Plus, X } from 'lucide-react';
 import { useRef } from 'react';
 import { t } from '../i18n.js';
-import { compressImage, savePhoto } from '../db.js';
+import { compressImage } from '../db.js';
 import { usePhoto } from '../hooks/usePhoto.js';
 
-function ItemRow({ item, lang, onToggle, onQty, onRemove, onPhotoSaved, onOpenPhoto }) {
+function ItemRow({ item, lang, listId, onToggle, onQty, onRemove, onPhoto, onOpenPhoto }) {
   const fileRef = useRef(null);
-  const photoUrl = usePhoto(item.id, item.hasPhoto, item.photoRev || 0);
+  const photoUrl = usePhoto(listId, item.id, item.hasPhoto, item.photoRev || 0);
 
   const pickPhoto = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = ''; // allow re-picking the same file
     if (!file) return;
     try {
-      const blob = await compressImage(file);
-      await savePhoto(item.id, blob);
-      onPhotoSaved();
+      onPhoto(await compressImage(file));
     } catch (err) {
       console.error('photo save failed:', err);
     }

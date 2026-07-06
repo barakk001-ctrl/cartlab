@@ -300,6 +300,44 @@ app.delete('/api/lists/:id/items/:itemId', guard((req, res) => {
   res.json({ ok: true, version });
 }));
 
+// ---- item photos ----
+// Compressed JPEGs (~30-80 kB, client downscales before upload), stored as
+// files in DATA_DIR/photos so a shared list's photos show on every device.
+
+const rawImage = express.raw({ type: ['image/*', 'application/octet-stream'], limit: '400kb' });
+
+app.put('/api/lists/:id/items/:itemId/photo', rawImage, guard((req, res) => {
+  const id = requireListId(req, res);
+  if (!id) return;
+  if (!LIST_ID_RE.test(req.params.itemId)) return res.status(400).json({ ok: false, error: 'bad item id' });
+  if (!Buffer.isBuffer(req.body) || req.body.length < 100) return res.status(400).json({ ok: false, error: 'bad image' });
+  const result = store.setPhoto(id, req.params.itemId, req.body);
+  if (result === null) return res.status(404).json({ ok: false, error: 'not found' });
+  broadcast(id, { version: result.version });
+  res.json({ ok: true, ...result });
+}));
+
+app.delete('/api/lists/:id/items/:itemId/photo', guard((req, res) => {
+  const id = requireListId(req, res);
+  if (!id) return;
+  if (!LIST_ID_RE.test(req.params.itemId)) return res.status(400).json({ ok: false, error: 'bad item id' });
+  const version = store.removePhoto(id, req.params.itemId);
+  if (version === null) return res.status(404).json({ ok: false, error: 'not found' });
+  broadcast(id, { version });
+  res.json({ ok: true, version });
+}));
+
+app.get('/api/lists/:id/items/:itemId/photo', guard((req, res) => {
+  const id = requireListId(req, res);
+  if (!id) return;
+  if (!LIST_ID_RE.test(req.params.itemId)) return res.status(400).json({ ok: false, error: 'bad item id' });
+  const file = store.getPhotoFile(id, req.params.itemId);
+  if (!file) return res.status(404).json({ ok: false, error: 'not found' });
+  // The client includes ?rev= in the URL, so the content is immutable per URL.
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.type('image/jpeg').sendFile(file);
+}));
+
 // Bulk delete ("clear bought items") — one round-trip, one version bump.
 app.post('/api/lists/:id/items/bulk-delete', guard((req, res) => {
   const id = requireListId(req, res);

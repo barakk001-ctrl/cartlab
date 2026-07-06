@@ -7,6 +7,7 @@
 // ------------------------------------------------------------
 
 const QUEUE_KEY = 'cartlab:queue';
+const PHOTO_QUEUE_KEY = 'cartlab:photoq';
 const VERSIONS_KEY = 'cartlab:versions';
 const SYNCED_KEY = 'cartlab:synced';
 const DEVICE_KEY = 'cartlab:device';
@@ -50,6 +51,20 @@ const loadQueue = () => {
   return Array.isArray(q) ? q.map(({ inFlight, ...op }) => op) : [];
 };
 const saveQueue = (q) => saveJson(QUEUE_KEY, q);
+// Photo ops: [{ listId, itemId, remove? }]. The blob itself stays in
+// IndexedDB, so only the intent needs to persist here. One entry per item —
+// the latest intent wins.
+const loadPhotoQueue = () => {
+  const q = loadJson(PHOTO_QUEUE_KEY, []);
+  return Array.isArray(q) ? q.map(({ inFlight, ...op }) => op) : [];
+};
+const savePhotoQueue = (q) => saveJson(PHOTO_QUEUE_KEY, q);
+function enqueuePhoto(queue, op) {
+  const i = queue.findIndex((o) => o.itemId === op.itemId && !o.inFlight);
+  if (i >= 0) queue[i] = op;
+  else queue.push(op);
+}
+
 const loadVersions = () => loadJson(VERSIONS_KEY, {});
 const saveVersions = (v) => saveJson(VERSIONS_KEY, v);
 const loadSynced = () => { const s = loadJson(SYNCED_KEY, []); return Array.isArray(s) ? s : []; };
@@ -85,4 +100,5 @@ function enqueue(queue, op) {
 export {
   newId, getDeviceId, enqueue,
   loadQueue, saveQueue, loadVersions, saveVersions, loadSynced, saveSynced,
+  loadPhotoQueue, savePhotoQueue, enqueuePhoto,
 };

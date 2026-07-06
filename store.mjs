@@ -19,6 +19,13 @@ function err(status, message) {
 
 export function openStore(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
+  // Item photos live as files next to the DB, keyed by item id (ids are
+  // unguessable uids, and photo routes verify list membership anyway).
+  const photosDir = path.join(dataDir, 'photos');
+  fs.mkdirSync(photosDir, { recursive: true });
+  const photoPath = (itemId) => path.join(photosDir, `${itemId}.jpg`);
+  const unlinkPhoto = (itemId) => { try { fs.unlinkSync(photoPath(itemId)); } catch {} };
+
   const db = new DatabaseSync(path.join(dataDir, 'cartlab.db'));
   db.exec(`
     PRAGMA journal_mode = WAL;
@@ -41,10 +48,16 @@ export function openStore(dataDir) {
     );
     CREATE INDEX IF NOT EXISTS idx_items_list ON items(list_id, created_at);
   `);
+  // Photo columns arrived after the first release — migrate old DBs in place.
+  try { db.exec('ALTER TABLE items ADD COLUMN has_photo INTEGER NOT NULL DEFAULT 0'); } catch {}
+  try { db.exec('ALTER TABLE items ADD COLUMN photo_rev INTEGER NOT NULL DEFAULT 0'); } catch {}
 
   const q = {
     getMeta: db.prepare('SELECT id, name, created_at, reminder_at, version FROM lists WHERE id = ?'),
-    getItems: db.prepare('SELECT id, name, qty, checked, created_at FROM items WHERE list_id = ? ORDER BY created_at, id'),
+    getItems: db.prepare('SELECT id, name, qty, checked, created_at, has_photo, photo_rev FROM items WHERE list_id = ? ORDER BY created_at, id'),
+    getPhotoMeta: db.prepare('SELECT has_photo, photo_rev FROM items WHERE list_id = ? AND id = ?'),
+    setPhotoMeta: db.prepare('UPDATE items SET has_photo = ?, photo_rev = photo_rev + 1 WHERE list_id = ? AND id = ?'),
+    photoIds: db.prepare('SELECT id FROM items WHERE list_id = ? AND has_photo = 1'),
     countLists: db.prepare('SELECT COUNT(*) AS n FROM lists'),
     countItems: db.prepare('SELECT COUNT(*) AS n FROM items WHERE list_id = ?'),
     hasItem: db.prepare('SELECT 1 AS x FROM items WHERE list_id = ? AND id = ?'),
@@ -84,14 +97,20 @@ export function openStore(dataDir) {
       version: row.version,
       items: q.getItems.all(id).map((i) => ({
         id: i.id, name: i.name, qty: i.qty, checked: !!i.checked, createdAt: i.created_at,
+        hasPhoto: !!i.has_photo, photoRev: i.photo_rev,
       })),
     };
   }
 
   // Create the list, or replace it wholesale (used for first upload of a
   // device-local list). `items` is the full desired item set, in order.
+  // Server-side photos survive for items whose id is re-inserted; the rest
+  // are unlinked.
   function upsertList(id, { name, createdAt, reminderAt, items }) {
-    return tx(() => {
+    const kept = items.slice(0, MAX_ITEMS);
+    const keptIds = new Set(kept.map((it) => it.id));
+    const orphaned = tx(() => {
+      const oldPhotos = q.photoIds.all(id).map((r) => r.id);
       if (q.getMeta.get(id)) {
         q.updateMeta.run(name, reminderAt ?? null, id);
       } else {
@@ -100,10 +119,15 @@ export function openStore(dataDir) {
       }
       q.clearItems.run(id);
       const base = Date.now();
-      items.slice(0, MAX_ITEMS).forEach((it, i) =>
+      kept.forEach((it, i) =>
         q.upsertItem.run(id, it.id, it.name, it.qty, it.checked ? 1 : 0, it.createdAt ?? base + i));
-      return q.version.get(id).version;
+      for (const pid of oldPhotos) {
+        if (keptIds.has(pid)) q.setPhotoMeta.run(1, id, pid);
+      }
+      return oldPhotos.filter((pid) => !keptIds.has(pid));
     });
+    orphaned.forEach(unlinkPhoto);
+    return q.version.get(id).version;
   }
 
   // Partial meta update. `undefined` = leave unchanged, `null` clears reminderAt.
@@ -121,7 +145,13 @@ export function openStore(dataDir) {
   }
 
   function deleteList(id) {
-    return tx(() => q.deleteList.run(id).changes > 0);
+    const photos = tx(() => {
+      const ids = q.photoIds.all(id).map((r) => r.id);
+      q.deleteList.run(id);
+      return ids;
+    });
+    photos.forEach(unlinkPhoto);
+    return true;
   }
 
   function upsertItem(listId, item) {
@@ -137,13 +167,49 @@ export function openStore(dataDir) {
   }
 
   function deleteItems(listId, ids) {
-    return tx(() => {
+    const version = tx(() => {
       if (!q.getMeta.get(listId)) return null;
       for (const id of ids) q.deleteItem.run(listId, id);
       q.bump.run(listId);
       return q.version.get(listId).version;
     });
+    if (version !== null) ids.forEach(unlinkPhoto);
+    return version;
   }
 
-  return { getList, upsertList, patchList, deleteList, upsertItem, deleteItems };
+  // ---- photos ----
+
+  function setPhoto(listId, itemId, buffer) {
+    return tx(() => {
+      if (!q.getPhotoMeta.get(listId, itemId)) return null;
+      fs.writeFileSync(photoPath(itemId), buffer);
+      q.setPhotoMeta.run(1, listId, itemId);
+      q.bump.run(listId);
+      return {
+        version: q.version.get(listId).version,
+        photoRev: q.getPhotoMeta.get(listId, itemId).photo_rev,
+      };
+    });
+  }
+
+  function removePhoto(listId, itemId) {
+    const version = tx(() => {
+      if (!q.getPhotoMeta.get(listId, itemId)) return null;
+      q.setPhotoMeta.run(0, listId, itemId);
+      q.bump.run(listId);
+      return q.version.get(listId).version;
+    });
+    if (version !== null) unlinkPhoto(itemId);
+    return version;
+  }
+
+  // Returns the file path if this list's item has a photo, else null.
+  function getPhotoFile(listId, itemId) {
+    const meta = q.getPhotoMeta.get(listId, itemId);
+    if (!meta?.has_photo) return null;
+    const file = photoPath(itemId);
+    return fs.existsSync(file) ? file : null;
+  }
+
+  return { getList, upsertList, patchList, deleteList, upsertItem, deleteItems, setPhoto, removePhoto, getPhotoFile };
 }
