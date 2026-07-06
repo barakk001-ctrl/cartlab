@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { isRTL } from './i18n.js';
 import { loadLang, saveLang } from './storage.js';
 import { useSyncedLists } from './hooks/useSyncedLists.js';
+import { useWakeLock } from './hooks/useWakeLock.js';
 import { scheduleReminder, reminderIdFor } from './push.js';
 import { buildReminderBody, buildReminderTitle } from './summary.js';
 import ListsView from './views/ListsView.jsx';
@@ -77,6 +78,10 @@ export default function App() {
   }, [lists, lang]);
 
   const active = lists.find((l) => l.id === activeId);
+
+  // Same as FitLab's guided workouts: keep the screen awake while a list is
+  // open, so the phone doesn't lock mid-aisle with flour on your hands.
+  useWakeLock(!!active);
 
   return (
     <div dir={isRTL(lang) ? 'rtl' : 'ltr'} className="min-h-screen bg-cream text-ink safe-top safe-bottom">
