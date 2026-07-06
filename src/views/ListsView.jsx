@@ -1,15 +1,41 @@
-import { Bell, Plus, ShoppingCart, Trash2 } from 'lucide-react';
+import { Bell, Link2, Plus, ShoppingCart, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { formatWhen, t } from '../i18n.js';
 
-function ListsView({ lang, setLang, lists, onCreate, onOpen, onDelete }) {
+// A shared link looks like https://…/#list=<id>; also accept a bare id.
+const parseShareLink = (text) => {
+  const m = text.match(/list=([a-z0-9]{6,40})/i) || text.trim().match(/^([a-z0-9]{6,40})$/i);
+  return m ? m[1] : null;
+};
+
+function ListsView({ lang, setLang, lists, onCreate, onOpen, onDelete, onJoin }) {
   const [name, setName] = useState('');
+  const [joinOpen, setJoinOpen] = useState(false);
+  const [joinValue, setJoinValue] = useState('');
+  const [joinError, setJoinError] = useState(null);
+  const [joining, setJoining] = useState(false);
 
   const create = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
     onCreate(trimmed);
     setName('');
+  };
+
+  const join = async () => {
+    setJoinError(null);
+    const id = parseShareLink(joinValue);
+    if (!id) { setJoinError(t('join_invalid', lang)); return; }
+    setJoining(true);
+    const ok = await onJoin(id);
+    setJoining(false);
+    if (ok) {
+      setJoinValue('');
+      setJoinOpen(false);
+      onOpen(id);
+    } else {
+      setJoinError(t('join_failed', lang));
+    }
   };
 
   return (
@@ -49,6 +75,39 @@ function ListsView({ lang, setLang, lists, onCreate, onOpen, onDelete }) {
           <Plus size={18} strokeWidth={2.5} />
           <span className="text-sm font-semibold">{t('create', lang)}</span>
         </button>
+      </div>
+
+      {/* Join a list someone shared (paste the link) */}
+      <div className="-mt-4 mb-8">
+        <button
+          onClick={() => { setJoinOpen(!joinOpen); setJoinError(null); }}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-leaf opacity-80 hover:opacity-100"
+        >
+          <Link2 size={13} strokeWidth={2.5} />
+          {t('join_list', lang)}
+        </button>
+        {joinOpen && (
+          <div className="mt-2">
+            <div className="flex gap-2">
+              <input
+                value={joinValue}
+                onChange={(e) => { setJoinValue(e.target.value); setJoinError(null); }}
+                onKeyDown={(e) => e.key === 'Enter' && join()}
+                placeholder={t('join_ph', lang)}
+                dir="ltr"
+                className="flex-1 min-w-0 bg-white/70 border border-ink/15 rounded-xl px-4 py-3 text-sm outline-none focus:border-leaf"
+              />
+              <button
+                onClick={join}
+                disabled={!joinValue.trim() || joining}
+                className="bg-leaf text-cream rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-40"
+              >
+                {t('join_btn', lang)}
+              </button>
+            </div>
+            {joinError && <p className="text-xs text-rust mt-2">{joinError}</p>}
+          </div>
+        )}
       </div>
 
       <h2 className="f-mono text-[11px] uppercase tracking-[0.25em] opacity-50 mb-3">

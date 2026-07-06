@@ -1,7 +1,10 @@
-import { Bell, ChevronLeft, ChevronRight, ListTodo, Plus, Share2, Trash2 } from 'lucide-react';
+import { Bell, ChevronLeft, ChevronRight, Copy, ListTodo, Plus, Share2, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { formatWhen, isRTL, t } from '../i18n.js';
 import { suggest } from '../catalog.js';
+import { IS_IOS, isStandalone } from '../push.js';
+
+const APP_HINT_KEY = 'cartlab:appHintDismissed';
 import ItemRow from '../components/ItemRow.jsx';
 import ReminderModal from '../components/ReminderModal.jsx';
 import PhotoModal from '../components/PhotoModal.jsx';
@@ -16,6 +19,26 @@ function ListView({
   const [exportOpen, setExportOpen] = useState(false);
   const [photoItem, setPhotoItem] = useState(null); // item shown in the photo modal
   const [shareCopied, setShareCopied] = useState(false);
+  // iOS never opens links in the installed web app, so a shared link lands in
+  // Safari — nudge the recipient toward the in-app "Join a shared list" flow.
+  const [appHint, setAppHint] = useState(() => {
+    try { return IS_IOS && !isStandalone() && !window.localStorage.getItem(APP_HINT_KEY); }
+    catch { return false; }
+  });
+  const [hintCopied, setHintCopied] = useState(false);
+
+  const dismissHint = () => {
+    try { window.localStorage.setItem(APP_HINT_KEY, '1'); } catch {}
+    setAppHint(false);
+  };
+
+  const copyShareLink = async () => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/#list=${list.id}`);
+      setHintCopied(true);
+      setTimeout(() => setHintCopied(false), 2000);
+    } catch {}
+  };
 
   const BackIcon = isRTL(lang) ? ChevronRight : ChevronLeft;
   const items = list.items;
@@ -113,6 +136,24 @@ function ListView({
           </button>
         </div>
       </header>
+
+      {appHint && (
+        <div className="bg-leaf/10 border border-leaf/25 rounded-2xl px-4 py-3 mb-5 text-[13px] leading-relaxed">
+          <div className="flex items-start gap-2">
+            <p className="flex-1">{t('open_in_app_hint', lang)}</p>
+            <button onClick={dismissHint} className="p-1 opacity-50 hover:opacity-100 shrink-0" aria-label={t('dismiss', lang)}>
+              <X size={15} strokeWidth={2.5} />
+            </button>
+          </div>
+          <button
+            onClick={copyShareLink}
+            className="inline-flex items-center gap-1.5 mt-2 text-leaf font-semibold"
+          >
+            <Copy size={13} strokeWidth={2.5} />
+            {hintCopied ? t('share_copied', lang) : t('copy_link', lang)}
+          </button>
+        </div>
+      )}
 
       {/* Add item, with autocomplete from the catalog + past items */}
       <div className="relative mb-6">

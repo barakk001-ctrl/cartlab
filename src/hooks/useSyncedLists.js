@@ -35,7 +35,7 @@ export function useSyncedLists() {
   const versionsRef = useRef(sync.loadVersions());
   const syncedRef = useRef(new Set(sync.loadSynced()));
   const staleRef = useRef(new Set());   // lists that changed remotely while ops were pending
-  const joiningRef = useRef(new Set()); // join attempts in flight / already tried
+  const joiningRef = useRef(new Map()); // listId -> in-flight join promise
   const flushingRef = useRef(false);
   const retryRef = useRef(null);
   const esRef = useRef(null);
@@ -321,14 +321,21 @@ export function useSyncedLists() {
     flushPhotos();
   };
 
-  // Opening a share link for an unknown list pulls it from the server.
+  // Pull an unknown list from the server — used by share links (hash) and
+  // the manual "Join a shared list" flow. Resolves to whether the list is
+  // now available locally.
   const joinList = (listId) => {
-    if (!listId || listsRef.current.some((l) => l.id === listId)) return;
-    if (joiningRef.current.has(listId)) return;
-    joiningRef.current.add(listId);
-    api.getList(listId)
-      .then(applyServer)
-      .catch(() => joiningRef.current.delete(listId)); // allow retry on next hashchange
+    if (!listId) return Promise.resolve(false);
+    if (listsRef.current.some((l) => l.id === listId)) return Promise.resolve(true);
+    let pending = joiningRef.current.get(listId);
+    if (!pending) {
+      pending = api.getList(listId)
+        .then((res) => { applyServer(res); return true; })
+        .catch(() => false)
+        .finally(() => joiningRef.current.delete(listId));
+      joiningRef.current.set(listId, pending);
+    }
+    return pending;
   };
 
   // ---- live updates ----

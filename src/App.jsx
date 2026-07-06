@@ -104,6 +104,7 @@ export default function App() {
             onCreate={(name) => openList(createList(name))}
             onOpen={openList}
             onDelete={deleteList}
+            onJoin={joinList}
           />
         )}
       </div>
