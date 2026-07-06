@@ -1,0 +1,128 @@
+// ------------------------------------------------------------
+// i18n helpers — EN/HE, same pattern as FitLab
+// ------------------------------------------------------------
+
+const STRINGS = {
+  en: {
+    app_name: 'CartLab',
+    tagline: 'Shopping lists that remind you.',
+    my_lists: 'My lists',
+    new_list_ph: 'New list name…',
+    create: 'Create',
+    items_zero: 'Empty list',
+    items_left: '{left} of {total} left to buy',
+    all_bought: 'All {total} bought',
+    empty_lists: 'No lists yet — create your first one above.',
+    delete_list: 'Delete list',
+    confirm_delete_list: 'Delete this list and its photos?',
+    back: 'Lists',
+    add_item_ph: 'Add item…',
+    add: 'Add',
+    to_buy: 'To buy',
+    in_cart: 'In cart',
+    clear_checked: 'Clear bought items',
+    empty_list: 'Nothing here yet — add your first item below.',
+    remind_me: 'Remind me',
+    reminder: 'Reminder',
+    edit_reminder: 'Edit reminder',
+    set_reminder: 'Set reminder',
+    cancel_reminder: 'Remove reminder',
+    reminder_explain: 'Pick when to be reminded. A notification will appear on your lock screen with the items still left to buy.',
+    reminder_past: 'Pick a time in the future.',
+    reminder_failed: 'Could not set the reminder — check that notifications are allowed and you are online.',
+    notif_denied: 'Notifications are blocked for this app. Allow them in Settings → Notifications.',
+    ios_install_hint: 'On iPhone, reminders work only from the installed app: open this site in Safari, tap Share, then "Add to Home Screen", and set the reminder from there.',
+    photo_title: 'Item photo',
+    photo_replace: 'Replace',
+    photo_remove: 'Remove',
+    close: 'Close',
+    cancel: 'Cancel',
+    delete_item: 'Delete item',
+    notif_body_empty: 'Time to go shopping!',
+    export_btn: 'Apple Reminders',
+    export_title: 'Send to Apple Reminders',
+    export_explain: 'Adds every unbought item as a native reminder in the iPhone Reminders app — they sync across devices and can show on the lock screen.',
+    export_setup_title: 'One-time setup (Shortcuts app)',
+    export_step1: 'Open the Shortcuts app and tap +.',
+    export_step2: 'Name the shortcut exactly "CartLab".',
+    export_step3: 'Add a "Split Text" action — set Separator to New Lines (input: Shortcut Input).',
+    export_step4: 'Add "Repeat with Each" over the split text, and inside it add "Add New Reminder" with the Repeat Item as the title.',
+    export_send: 'Send to Reminders',
+    export_share: 'Share list',
+    export_copy: 'Copy list',
+    export_copied: 'Copied!',
+    export_empty: 'Everything is bought — nothing to send.',
+    export_not_ios: 'Apple Reminders export works on iPhone/iPad. Here you can share or copy the list instead.',
+    lang_toggle: 'עברית',
+  },
+  he: {
+    app_name: 'CartLab',
+    tagline: 'רשימות קניות שמזכירות לך.',
+    my_lists: 'הרשימות שלי',
+    new_list_ph: 'שם רשימה חדשה…',
+    create: 'צור',
+    items_zero: 'רשימה ריקה',
+    items_left: 'נשארו {left} מתוך {total} לקנות',
+    all_bought: 'כל {total} הפריטים נקנו',
+    empty_lists: 'אין רשימות עדיין — צרו את הראשונה למעלה.',
+    delete_list: 'מחק רשימה',
+    confirm_delete_list: 'למחוק את הרשימה ואת התמונות שלה?',
+    back: 'רשימות',
+    add_item_ph: 'הוסיפו פריט…',
+    add: 'הוסף',
+    to_buy: 'לקנות',
+    in_cart: 'בעגלה',
+    clear_checked: 'נקה פריטים שנקנו',
+    empty_list: 'אין פריטים עדיין — הוסיפו את הראשון למטה.',
+    remind_me: 'תזכורת',
+    reminder: 'תזכורת',
+    edit_reminder: 'עריכת תזכורת',
+    set_reminder: 'קבע תזכורת',
+    cancel_reminder: 'הסר תזכורת',
+    reminder_explain: 'בחרו מתי להזכיר לכם. התראה תופיע במסך הנעילה עם הפריטים שנשארו לקנות.',
+    reminder_past: 'בחרו זמן עתידי.',
+    reminder_failed: 'לא הצלחנו לקבוע תזכורת — ודאו שהתראות מאושרות ושיש חיבור לרשת.',
+    notif_denied: 'התראות חסומות לאפליקציה. אפשרו אותן בהגדרות → התראות.',
+    ios_install_hint: 'באייפון, תזכורות עובדות רק מהאפליקציה המותקנת: פתחו את האתר בספארי, לחצו על שיתוף ואז "הוסף למסך הבית", וקבעו את התזכורת משם.',
+    photo_title: 'תמונת פריט',
+    photo_replace: 'החלף',
+    photo_remove: 'הסר',
+    close: 'סגור',
+    cancel: 'ביטול',
+    delete_item: 'מחק פריט',
+    notif_body_empty: 'הגיע הזמן לקניות!',
+    export_btn: 'תזכורות אפל',
+    export_title: 'שליחה לתזכורות אפל',
+    export_explain: 'מוסיף כל פריט שטרם נקנה כתזכורת באפליקציית התזכורות של האייפון — הן מסתנכרנות בין מכשירים ויכולות להופיע במסך הנעילה.',
+    export_setup_title: 'הגדרה חד־פעמית (אפליקציית Shortcuts)',
+    export_step1: 'פתחו את אפליקציית Shortcuts (קיצורי דרך) ולחצו +.',
+    export_step2: 'קראו לקיצור בדיוק "CartLab".',
+    export_step3: 'הוסיפו פעולת "Split Text" — הגדירו Separator ל־New Lines (קלט: Shortcut Input).',
+    export_step4: 'הוסיפו "Repeat with Each" על הטקסט המפוצל, ובתוכו "Add New Reminder" עם Repeat Item ככותרת.',
+    export_send: 'שלח לתזכורות',
+    export_share: 'שתף רשימה',
+    export_copy: 'העתק רשימה',
+    export_copied: 'הועתק!',
+    export_empty: 'הכל נקנה — אין מה לשלוח.',
+    export_not_ios: 'ייצוא לתזכורות אפל עובד באייפון/אייפד. כאן אפשר לשתף או להעתיק את הרשימה במקום.',
+    lang_toggle: 'English',
+  },
+};
+
+function t(key, lang, vars) {
+  let s = STRINGS[lang]?.[key] ?? STRINGS.en[key] ?? key;
+  if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
+  return s;
+}
+
+const isRTL = (lang) => lang === 'he';
+
+const formatWhen = (ts, lang) => {
+  try {
+    return new Date(ts).toLocaleString(lang === 'he' ? 'he-IL' : 'en-US', {
+      weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  } catch { return ''; }
+};
+
+export { t, isRTL, formatWhen };

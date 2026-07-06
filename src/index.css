@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html, body {
+  background: #F7F3EA;
+  color: #1F1E1A;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+/* Editorial display face for headings, matching the FitLab look */
+.f-display {
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  letter-spacing: -0.02em;
+}
+.f-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Respect the iPhone notch / home indicator in the installed app */
+.safe-top { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+input[type='datetime-local'] {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Checked items settle with a soft strike */
+.item-done {
+  text-decoration: line-through;
+  text-decoration-color: rgba(31, 30, 26, 0.35);
+  opacity: 0.55;
+}
