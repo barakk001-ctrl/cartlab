@@ -1,7 +1,7 @@
 import { Bell, ChevronLeft, ChevronRight, Copy, ListTodo, Plus, Share2, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { formatWhen, isRTL, t } from '../i18n.js';
-import { suggest } from '../catalog.js';
+import { groupItems, suggest } from '../catalog.js';
 import { IS_IOS, isStandalone } from '../push.js';
 
 const APP_HINT_KEY = 'cartlab:appHintDismissed';
@@ -12,7 +12,7 @@ import ExportModal from '../components/ExportModal.jsx';
 
 function ListView({
   lang, list, knownNames, onBack, onAddItem, onPatchItem, onRemoveItem,
-  onClearChecked, onSetReminder, onSetPhoto, onRemovePhoto, onDelete,
+  onClearChecked, onSetReminder, onSetPhoto, onRemovePhoto, onDedupe, onDelete,
 }) {
   const [draft, setDraft] = useState('');
   const [reminderOpen, setReminderOpen] = useState(false);
@@ -44,6 +44,21 @@ function ListView({
   const items = list.items;
   const toBuy = items.filter((i) => !i.checked);
   const inCart = items.filter((i) => i.checked);
+
+  // "To buy" grouped by store section; if nothing is recognized, skip the
+  // lone "Other" header and render flat.
+  const groups = useMemo(() => groupItems(toBuy, lang), [toBuy, lang]);
+  const showGroupHeaders = !(groups.length === 1 && groups[0].key === 'other');
+
+  const hasDupes = useMemo(() => {
+    const seen = new Set();
+    for (const i of items) {
+      const key = i.name.trim().toLowerCase();
+      if (seen.has(key)) return true;
+      seen.add(key);
+    }
+    return false;
+  }, [items]);
 
   const addItem = (name = draft) => {
     const trimmed = name.trim();
@@ -197,12 +212,28 @@ function ListView({
 
       {toBuy.length > 0 && (
         <section className="mb-6">
-          <h2 className="f-mono text-[11px] uppercase tracking-[0.25em] opacity-50 mb-2">
-            {t('to_buy', lang)} — {toBuy.length}
-          </h2>
-          <div className="space-y-2">
-            {toBuy.map((item) => <ItemRow key={item.id} {...rowProps(item)} />)}
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="f-mono text-[11px] uppercase tracking-[0.25em] opacity-50">
+              {t('to_buy', lang)} — {toBuy.length}
+            </h2>
+            {hasDupes && (
+              <button onClick={onDedupe} className="text-xs text-leaf font-semibold">
+                {t('merge_dupes', lang)}
+              </button>
+            )}
           </div>
+          {groups.map((group) => (
+            <div key={group.key} className="mb-3 last:mb-0">
+              {showGroupHeaders && (
+                <h3 className="text-[11px] font-semibold text-leaf/80 mb-1.5 ms-1">
+                  {group.label}
+                </h3>
+              )}
+              <div className="space-y-2">
+                {group.items.map((item) => <ItemRow key={item.id} {...rowProps(item)} />)}
+              </div>
+            </div>
+          ))}
         </section>
       )}
 

@@ -303,6 +303,50 @@ export function useSyncedLists() {
     );
   };
 
+  // Merge items with the same (case-insensitive) name: one survivor per name
+  // (preferring one with a photo) with the quantities summed; checked only if
+  // every duplicate was checked. Returns how many duplicates were removed.
+  const dedupeItems = (listId) => {
+    const list = listsRef.current.find((l) => l.id === listId);
+    if (!list) return 0;
+    const byName = new Map();
+    for (const item of list.items) {
+      const key = item.name.trim().toLowerCase();
+      if (!byName.has(key)) byName.set(key, []);
+      byName.get(key).push(item);
+    }
+    const keepers = [];
+    const removed = [];
+    for (const group of byName.values()) {
+      if (group.length < 2) continue;
+      const keeper = group.find((i) => i.hasPhoto) || group[0];
+      keepers.push({
+        ...keeper,
+        qty: Math.min(999, group.reduce((sum, i) => sum + i.qty, 0)),
+        checked: group.every((i) => i.checked),
+      });
+      removed.push(...group.filter((i) => i !== keeper));
+    }
+    if (!removed.length) return 0;
+    deletePhotos(removed.map((i) => i.id)).catch(() => {});
+    const removedIds = new Set(removed.map((i) => i.id));
+    const keeperById = new Map(keepers.map((k) => [k.id, k]));
+    setLists(listsRef.current.map((l) =>
+      l.id === listId
+        ? { ...l, items: l.items.filter((i) => !removedIds.has(i.id)).map((i) => keeperById.get(i.id) || i) }
+        : l));
+    for (const k of keepers) {
+      sync.enqueue(queueRef.current, {
+        kind: 'putItem', listId,
+        body: { id: k.id, name: k.name, qty: k.qty, checked: k.checked, createdAt: k.createdAt },
+      });
+    }
+    sync.enqueue(queueRef.current, { kind: 'bulkDelete', listId, body: { ids: [...removedIds] } });
+    persistQueue();
+    flush();
+    return removed.length;
+  };
+
   // Photo taken/replaced: cache the blob locally (rev 0 = not uploaded yet),
   // show it immediately, and queue the upload.
   const setItemPhoto = async (listId, itemId, blob) => {
@@ -426,7 +470,7 @@ export function useSyncedLists() {
   return {
     lists,
     createList, deleteList, setReminder,
-    addItem, patchItem, removeItem, clearChecked,
+    addItem, patchItem, removeItem, clearChecked, dedupeItems,
     setItemPhoto, removeItemPhoto,
     joinList,
   };

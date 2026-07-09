@@ -18,7 +18,7 @@ export default function App() {
   const {
     lists,
     createList, deleteList, setReminder,
-    addItem, patchItem, removeItem, clearChecked,
+    addItem, patchItem, removeItem, clearChecked, dedupeItems,
     setItemPhoto, removeItemPhoto,
     joinList,
   } = useSyncedLists();
@@ -99,6 +99,7 @@ export default function App() {
             onSetReminder={(at) => setReminder(active.id, at)}
             onSetPhoto={(itemId, blob) => setItemPhoto(active.id, itemId, blob)}
             onRemovePhoto={(itemId) => removeItemPhoto(active.id, itemId)}
+            onDedupe={() => dedupeItems(active.id)}
             onDelete={() => { deleteList(active.id); openList(null); }}
           />
         ) : (
