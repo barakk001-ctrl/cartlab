@@ -225,7 +225,7 @@ function ListView({
           {groups.map((group) => (
             <div key={group.key} className="mb-3 last:mb-0">
               {showGroupHeaders && (
-                <h3 className="text-[11px] font-semibold text-leaf/80 mb-1.5 ms-1">
+                <h3 className="text-xs font-bold text-leaf/80 text-center mb-1.5">
                   {group.label}
                 </h3>
               )}
