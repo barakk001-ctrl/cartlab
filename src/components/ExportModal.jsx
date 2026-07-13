@@ -13,12 +13,12 @@ function ExportModal({ lang, list, onClose }) {
 
   const send = () => {
     saveRemindersListName(target.trim());
-    sendToAppleReminders(list, target);
+    sendToAppleReminders(list, target, lang);
     onClose();
   };
 
   const share = async () => {
-    const result = await shareList(list);
+    const result = await shareList(list, lang);
     if (result === 'copied') {
       setCopied(true);
       setTimeout(onClose, 900);

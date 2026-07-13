@@ -1,5 +1,5 @@
 import { Bell, ChevronLeft, ChevronRight, Copy, ListTodo, Plus, Share2, Trash2, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatWhen, isRTL, t } from '../i18n.js';
 import { groupItems, suggest } from '../catalog.js';
 import { topHistory } from '../storage.js';
@@ -10,7 +10,7 @@ import ItemRow from '../components/ItemRow.jsx';
 import ReminderModal from '../components/ReminderModal.jsx';
 import PhotoModal from '../components/PhotoModal.jsx';
 import ExportModal from '../components/ExportModal.jsx';
-import CategoryModal from '../components/CategoryModal.jsx';
+import ItemModal from '../components/ItemModal.jsx';
 
 function ListView({
   lang, list, knownNames, remoteTouched, onBack, onAddItem, onPatchItem, onRemoveItem,
@@ -20,7 +20,7 @@ function ListView({
   const [reminderOpen, setReminderOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [photoItem, setPhotoItem] = useState(null); // item shown in the photo modal
-  const [catItem, setCatItem] = useState(null);     // item shown in the category picker
+  const [detailItem, setDetailItem] = useState(null); // item shown in the note/category sheet
   const [shareCopied, setShareCopied] = useState(false);
   // iOS never opens links in the installed web app, so a shared link lands in
   // Safari — nudge the recipient toward the in-app "Join a shared list" flow.
@@ -56,12 +56,25 @@ function ListView({
   const hasDupes = useMemo(() => {
     const seen = new Set();
     for (const i of items) {
-      const key = i.name.trim().toLowerCase();
+      const key = `${i.name.trim().toLowerCase()}|${i.unit || ''}`; // matches dedupeItems
       if (seen.has(key)) return true;
       seen.add(key);
     }
     return false;
   }, [items]);
+
+  // Small celebration when the last "to buy" item lands in the cart.
+  const [celebrate, setCelebrate] = useState(false);
+  const prevLeftRef = useRef(toBuy.length);
+  useEffect(() => {
+    const prev = prevLeftRef.current;
+    prevLeftRef.current = toBuy.length;
+    if (prev > 0 && toBuy.length === 0 && inCart.length > 0) {
+      setCelebrate(true);
+      const handle = setTimeout(() => setCelebrate(false), 1900);
+      return () => clearTimeout(handle);
+    }
+  }, [toBuy.length, inCart.length]);
 
   const addItem = (name = draft) => {
     const trimmed = name.trim();
@@ -107,11 +120,11 @@ function ListView({
     listId: list.id,
     highlight: remoteTouched?.has(item.id) || false,
     onToggle: () => onPatchItem(item.id, { checked: !item.checked }),
-    onQty: (delta) => onPatchItem(item.id, { qty: Math.max(1, item.qty + delta) }),
+    onPatch: (patch) => onPatchItem(item.id, patch),
     onRemove: () => onRemoveItem(item.id),
     onPhoto: (blob) => onSetPhoto(item.id, blob),
     onOpenPhoto: () => setPhotoItem(item),
-    onOpenCategory: () => setCatItem(item),
+    onOpenCategory: () => setDetailItem(item),
   });
 
   return (
@@ -298,12 +311,20 @@ function ListView({
         <ExportModal lang={lang} list={list} onClose={() => setExportOpen(false)} />
       )}
 
-      {catItem && (
-        <CategoryModal
+      {celebrate && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none">
+          <div className="celebrate bg-leaf text-cream rounded-3xl px-8 py-6 text-2xl font-bold shadow-2xl f-display">
+            {t('all_done', lang)} 🎉
+          </div>
+        </div>
+      )}
+
+      {detailItem && (
+        <ItemModal
           lang={lang}
-          item={items.find((i) => i.id === catItem.id) || catItem}
-          onClose={() => setCatItem(null)}
-          onPick={(key) => onPatchItem(catItem.id, { cat: key })}
+          item={items.find((i) => i.id === detailItem.id) || detailItem}
+          onClose={() => setDetailItem(null)}
+          onPatch={(patch) => onPatchItem(detailItem.id, patch)}
         />
       )}
 

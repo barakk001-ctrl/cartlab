@@ -25,7 +25,7 @@ async function call(method, url, body) {
 // photoRev) is server-owned and changes only through the photo endpoints.
 const stripItem = (i) => ({
   id: i.id, name: i.name, qty: i.qty, checked: !!i.checked, createdAt: i.createdAt,
-  cat: i.cat || null,
+  cat: i.cat || null, unit: i.unit || null, note: i.note || null,
 });
 
 const stripList = (l) => ({

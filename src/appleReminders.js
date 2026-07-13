@@ -10,21 +10,25 @@
 // standalone PWA, so the user swipes back instead of being kicked to Safari.
 // ------------------------------------------------------------
 import { isStandalone } from './push.js';
+import { itemQtyText } from './units.js';
 
 const SHORTCUT_NAME = 'CartLab';
 
-function buildExportText(list) {
+function buildExportText(list, lang) {
   return list.items
     .filter((i) => !i.checked)
-    .map((i) => (i.qty > 1 ? `${i.name} ×${i.qty}` : i.name))
+    .map((i) => {
+      const qty = itemQtyText(i, lang);
+      return qty ? `${i.name} ${qty}` : i.name;
+    })
     .join('\n');
 }
 
-function sendToAppleReminders(list, targetListName) {
+function sendToAppleReminders(list, targetListName, lang) {
   try {
     // First line: target Reminders list name. Rest: one item per line.
     const target = (targetListName || '').trim() || list.name;
-    const text = encodeURIComponent(`${target}\n${buildExportText(list)}`);
+    const text = encodeURIComponent(`${target}\n${buildExportText(list, lang)}`);
     const name = encodeURIComponent(SHORTCUT_NAME);
     if (isStandalone()) {
       window.location.href = `shortcuts://run-shortcut?name=${name}&input=text&text=${text}`;
@@ -39,8 +43,8 @@ function sendToAppleReminders(list, targetListName) {
 
 // Non-iOS fallback: system share sheet where available, else clipboard.
 // Returns 'shared' | 'copied' | null.
-async function shareList(list) {
-  const text = `${list.name}\n${buildExportText(list)}`;
+async function shareList(list, lang) {
+  const text = `${list.name}\n${buildExportText(list, lang)}`;
   if (navigator.share) {
     try { await navigator.share({ title: list.name, text }); return 'shared'; } catch { return null; }
   }

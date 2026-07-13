@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import { isRTL, t } from '../i18n.js';
 import { compressImage } from '../db.js';
 import { usePhoto } from '../hooks/usePhoto.js';
+import { formatQtyNum, nextUnit, unitLabel, unitMin, unitStep } from '../units.js';
 
 // Swipe thresholds: the drag "locks" horizontal after 12px (before that,
 // vertical movement is handed to the scroller via touch-action: pan-y),
@@ -10,7 +11,7 @@ import { usePhoto } from '../hooks/usePhoto.js';
 const SWIPE_TRIGGER = 64;
 const SWIPE_MAX = 96;
 
-function ItemRow({ item, lang, listId, highlight, onToggle, onQty, onRemove, onPhoto, onOpenPhoto, onOpenCategory }) {
+function ItemRow({ item, lang, listId, highlight, onToggle, onPatch, onRemove, onPhoto, onOpenPhoto, onOpenCategory }) {
   const fileRef = useRef(null);
   const photoUrl = usePhoto(listId, item.id, item.hasPhoto, item.photoRev || 0);
 
@@ -130,27 +131,40 @@ function ItemRow({ item, lang, listId, highlight, onToggle, onQty, onRemove, onP
           )}
           <input ref={fileRef} type="file" accept="image/*" onChange={pickPhoto} hidden />
 
-          {/* tapping the name opens the category picker */}
+          {/* tapping the name opens the item sheet (note + category) */}
           <button
             onClick={onOpenCategory}
-            className={`flex-1 min-w-0 break-words text-start text-[15px] ${item.checked ? 'item-done' : ''}`}
+            className="flex-1 min-w-0 text-start"
           >
-            {item.name}
+            <span className={`block break-words text-[15px] ${item.checked ? 'item-done' : ''}`}>
+              {item.name}
+            </span>
+            {item.note && (
+              <span className="block text-xs opacity-55 truncate mt-0.5">{item.note}</span>
+            )}
           </button>
 
-          {/* quantity stepper */}
+          {/* quantity stepper — tapping the number cycles the unit (× → kg → g → L → pack) */}
           <div className="flex items-center gap-1 shrink-0" dir="ltr">
             <button
-              onClick={() => onQty(-1)}
-              disabled={item.qty <= 1}
+              onClick={() => onPatch({ qty: Math.max(unitMin(item.unit), Math.round((item.qty - unitStep(item.unit)) * 100) / 100) })}
+              disabled={item.qty <= unitMin(item.unit)}
               className="w-7 h-7 rounded-full border border-ink/20 flex items-center justify-center disabled:opacity-25"
               aria-label="-"
             >
               <Minus size={13} strokeWidth={2.5} />
             </button>
-            <span className="f-mono text-sm w-6 text-center font-semibold">{item.qty}</span>
             <button
-              onClick={() => onQty(1)}
+              onClick={() => {
+                const unit = nextUnit(item.unit);
+                onPatch({ unit, qty: unitMin(unit) });
+              }}
+              className="f-mono text-sm min-w-6 px-0.5 text-center font-semibold whitespace-nowrap"
+            >
+              {formatQtyNum(item.qty)}{item.unit ? ` ${unitLabel(item.unit, lang)}` : ''}
+            </button>
+            <button
+              onClick={() => onPatch({ qty: Math.min(999, Math.round((item.qty + unitStep(item.unit)) * 100) / 100) })}
               className="w-7 h-7 rounded-full border border-ink/20 flex items-center justify-center"
               aria-label="+"
             >

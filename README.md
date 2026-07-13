@@ -5,7 +5,8 @@ Shopping lists with photos and **lock-screen reminders**. Bilingual (EN/HE with 
 ## Features
 
 - **Multiple lists** — create, open, delete. Each list shows how many items are left to buy.
-- **Items with quantities** — +/− stepper per item, check items off into an "In cart" section, clear bought items in one tap.
+- **Items with quantities & units** — +/− stepper per item; tapping the number cycles the unit (× / kg / g / L / pack) with sensible steps (0.5 kg, 100 g). Check items off into an "In cart" section, clear bought items in one tap — and enjoy the little "All done!" when the last one lands in the cart.
+- **Item notes** — tap an item's name to add a short note ("the brand in the blue package"); it shows under the name and syncs.
 - **Photo per item** — tap the camera square on any item; on iPhone this offers *Take Photo / Photo Library*. Photos are downscaled to a small JPEG, cached on-device in IndexedDB, and synced to the server so everyone sharing the list sees them.
 - **Autocomplete** — typing in the add-item box suggests from a built-in catalog of ~150 common groceries (EN + HE, matched in both languages) plus everything you've added before; tap a suggestion to add it instantly.
 - **Grouped by store section** — the "To buy" list auto-groups items into Vegetables / Fruit / Dairy / Meat / Pantry… in store-walk order, using the same catalog (unrecognized items land under "Other").

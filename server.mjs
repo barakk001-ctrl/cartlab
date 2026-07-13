@@ -160,19 +160,25 @@ const parseName = (v) =>
 // undefined = invalid, null = no reminder
 const parseTime = (v) => (v == null ? null : Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : undefined);
 
+const UNITS = new Set(['kg', 'g', 'l', 'pack']);
+
 function parseItem(raw) {
   if (!raw || typeof raw !== 'object') return null;
   if (typeof raw.id !== 'string' || !LIST_ID_RE.test(raw.id)) return null;
   const name = parseName(raw.name);
   if (!name) return null;
+  const qty = Number(raw.qty);
   return {
     id: raw.id,
     name,
-    qty: Number.isInteger(raw.qty) ? Math.min(Math.max(raw.qty, 1), 999) : 1,
+    // decimals allowed (1.5 kg); two-decimal precision, capped at 999
+    qty: Number.isFinite(qty) && qty > 0 ? Math.min(Math.round(qty * 100) / 100, 999) : 1,
     checked: !!raw.checked,
     createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : null,
     // manual category override; a short slug like "veg" (null = auto)
     cat: typeof raw.cat === 'string' && /^[a-z]{2,16}$/.test(raw.cat) ? raw.cat : null,
+    unit: UNITS.has(raw.unit) ? raw.unit : null,
+    note: typeof raw.note === 'string' && raw.note.trim() ? raw.note.trim().slice(0, 300) : null,
   };
 }
 

@@ -67,3 +67,15 @@ input[type='datetime-local'] {
 .remote-flash {
   animation: remote-flash 2s ease-out;
 }
+
+/* "All done!" pop when the last item lands in the cart */
+@keyframes celebrate-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  18% { transform: scale(1.06); opacity: 1; }
+  30% { transform: scale(1); }
+  80% { opacity: 1; }
+  100% { transform: scale(1); opacity: 0; }
+}
+.celebrate {
+  animation: celebrate-pop 1.9s ease-out forwards;
+}

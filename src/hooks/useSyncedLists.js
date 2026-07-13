@@ -24,6 +24,12 @@ const RETRY_MS = 15000;
 // A reminder that already fired shouldn't resurface from cache or server.
 const normalizeReminder = (at) => (at && at > Date.now() ? at : null);
 
+// The synced item fields, as a putItem op body (photo state is server-owned).
+const sharedItemBody = (i) => ({
+  id: i.id, name: i.name, qty: i.qty, checked: i.checked, createdAt: i.createdAt,
+  cat: i.cat || null, unit: i.unit || null, note: i.note || null,
+});
+
 export function useSyncedLists() {
   const [lists, setListsState] = useState(() =>
     loadLists().map((l) => ({ ...l, reminderAt: normalizeReminder(l.reminderAt) })));
@@ -125,7 +131,8 @@ export function useSyncedLists() {
         .filter((si) => {
           const prev = prevById.get(si.id);
           return !prev || prev.name !== si.name || prev.qty !== si.qty
-            || prev.checked !== si.checked || (prev.cat || null) !== (si.cat || null);
+            || prev.checked !== si.checked || (prev.cat || null) !== (si.cat || null)
+            || (prev.unit || null) !== (si.unit || null) || (prev.note || null) !== (si.note || null);
         })
         .map((i) => i.id));
     }
@@ -337,9 +344,9 @@ export function useSyncedLists() {
     const nextLists = listsRef.current.map((l) =>
       l.id === listId ? { ...l, items: l.items.map((i) => (i.id === itemId ? next : i)) } : l);
     // Photo-only patches are device-local — update state without a server op.
-    const shared = ['name', 'qty', 'checked', 'cat'].some((k) => k in patch);
+    const shared = ['name', 'qty', 'checked', 'cat', 'unit', 'note'].some((k) => k in patch);
     commit(nextLists, shared
-      ? { kind: 'putItem', listId, body: { id: next.id, name: next.name, qty: next.qty, checked: next.checked, createdAt: next.createdAt, cat: next.cat || null } }
+      ? { kind: 'putItem', listId, body: sharedItemBody(next) }
       : null);
   };
 
@@ -398,10 +405,7 @@ export function useSyncedLists() {
       items.splice(Math.min(index, items.length), 0, restored);
       commit(
         listsRef.current.map((l) => (l.id === listId ? { ...l, items } : l)),
-        {
-          kind: 'putItem', listId,
-          body: { id: restored.id, name: restored.name, qty: restored.qty, checked: restored.checked, createdAt: restored.createdAt, cat: restored.cat || null },
-        },
+        { kind: 'putItem', listId, body: sharedItemBody(restored) },
       );
       if (blobPromise) {
         blobPromise.then((entry) => {
@@ -417,9 +421,10 @@ export function useSyncedLists() {
   const dedupeItems = (listId) => {
     const list = listsRef.current.find((l) => l.id === listId);
     if (!list) return 0;
+    // Key on name + unit: 2 packs of pita and 500 g of pita don't sum.
     const byName = new Map();
     for (const item of list.items) {
-      const key = item.name.trim().toLowerCase();
+      const key = `${item.name.trim().toLowerCase()}|${item.unit || ''}`;
       if (!byName.has(key)) byName.set(key, []);
       byName.get(key).push(item);
     }
@@ -430,7 +435,7 @@ export function useSyncedLists() {
       const keeper = group.find((i) => i.hasPhoto) || group[0];
       keepers.push({
         ...keeper,
-        qty: Math.min(999, group.reduce((sum, i) => sum + i.qty, 0)),
+        qty: Math.min(999, Math.round(group.reduce((sum, i) => sum + i.qty, 0) * 100) / 100),
         checked: group.every((i) => i.checked),
       });
       removed.push(...group.filter((i) => i !== keeper));
@@ -444,10 +449,7 @@ export function useSyncedLists() {
         ? { ...l, items: l.items.filter((i) => !removedIds.has(i.id)).map((i) => keeperById.get(i.id) || i) }
         : l));
     for (const k of keepers) {
-      sync.enqueue(queueRef.current, {
-        kind: 'putItem', listId,
-        body: { id: k.id, name: k.name, qty: k.qty, checked: k.checked, createdAt: k.createdAt, cat: k.cat || null },
-      });
+      sync.enqueue(queueRef.current, { kind: 'putItem', listId, body: sharedItemBody(k) });
     }
     sync.enqueue(queueRef.current, { kind: 'bulkDelete', listId, body: { ids: [...removedIds] } });
     persistQueue();
