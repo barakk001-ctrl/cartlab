@@ -10,6 +10,7 @@ import ItemRow from '../components/ItemRow.jsx';
 import ReminderModal from '../components/ReminderModal.jsx';
 import PhotoModal from '../components/PhotoModal.jsx';
 import ExportModal from '../components/ExportModal.jsx';
+import CategoryModal from '../components/CategoryModal.jsx';
 
 function ListView({
   lang, list, knownNames, remoteTouched, onBack, onAddItem, onPatchItem, onRemoveItem,
@@ -19,6 +20,7 @@ function ListView({
   const [reminderOpen, setReminderOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [photoItem, setPhotoItem] = useState(null); // item shown in the photo modal
+  const [catItem, setCatItem] = useState(null);     // item shown in the category picker
   const [shareCopied, setShareCopied] = useState(false);
   // iOS never opens links in the installed web app, so a shared link lands in
   // Safari — nudge the recipient toward the in-app "Join a shared list" flow.
@@ -109,6 +111,7 @@ function ListView({
     onRemove: () => onRemoveItem(item.id),
     onPhoto: (blob) => onSetPhoto(item.id, blob),
     onOpenPhoto: () => setPhotoItem(item),
+    onOpenCategory: () => setCatItem(item),
   });
 
   return (
@@ -187,7 +190,7 @@ function ListView({
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addItem()}
             placeholder={t('add_item_ph', lang)}
-            className="flex-1 min-w-0 bg-white/70 border border-ink/15 rounded-xl px-4 py-3 text-base outline-none focus:border-leaf"
+            className="flex-1 min-w-0 bg-surface/70 border border-ink/15 rounded-xl px-4 py-3 text-base outline-none focus:border-leaf"
           />
           <button
             onClick={() => addItem()}
@@ -225,7 +228,7 @@ function ListView({
               <button
                 key={name}
                 onClick={() => addItem(name)}
-                className="inline-flex items-center gap-1.5 bg-white/70 border border-ink/15 rounded-full px-3 py-1.5 text-[13px] active:scale-95 transition-transform"
+                className="inline-flex items-center gap-1.5 bg-surface/70 border border-ink/15 rounded-full px-3 py-1.5 text-[13px] active:scale-95 transition-transform"
               >
                 <Plus size={12} strokeWidth={2.5} className="text-leaf" />
                 {name}
@@ -293,6 +296,15 @@ function ListView({
 
       {exportOpen && (
         <ExportModal lang={lang} list={list} onClose={() => setExportOpen(false)} />
+      )}
+
+      {catItem && (
+        <CategoryModal
+          lang={lang}
+          item={items.find((i) => i.id === catItem.id) || catItem}
+          onClose={() => setCatItem(null)}
+          onPick={(key) => onPatchItem(catItem.id, { cat: key })}
+        />
       )}
 
       {photoItem && (

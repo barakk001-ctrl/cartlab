@@ -3,12 +3,15 @@ export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
     extend: {
+      // Values live in CSS variables (src/index.css) so dark mode can swap
+      // the palette; the rgb()/<alpha-value> form keeps /opacity modifiers.
       colors: {
-        cream: '#F7F3EA',
-        ink: '#1F1E1A',
-        leaf: '#3E6B4A',
-        rust: '#B4552D',
-        sand: '#E7DFCE',
+        cream: 'rgb(var(--c-cream) / <alpha-value>)',
+        ink: 'rgb(var(--c-ink) / <alpha-value>)',
+        leaf: 'rgb(var(--c-leaf) / <alpha-value>)',
+        rust: 'rgb(var(--c-rust) / <alpha-value>)',
+        sand: 'rgb(var(--c-sand) / <alpha-value>)',
+        surface: 'rgb(var(--c-surface) / <alpha-value>)',
       },
     },
   },

@@ -29,7 +29,7 @@ function ExportModal({ lang, list, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-ink/70 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
       onClick={onClose}
       dir={isRTL(lang) ? 'rtl' : 'ltr'}
     >
@@ -64,13 +64,13 @@ function ExportModal({ lang, list, onClose }) {
               value={target}
               onChange={(e) => setTarget(e.target.value)}
               placeholder={list.name}
-              className="mt-1 w-full bg-white/70 border border-ink/15 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-leaf"
+              className="mt-1 w-full bg-surface/70 border border-ink/15 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-leaf"
             />
           </label>
         )}
 
         {IS_IOS && (
-          <details className="mb-4 bg-white/70 border border-ink/10 rounded-xl px-3 py-2.5">
+          <details className="mb-4 bg-surface/70 border border-ink/10 rounded-xl px-3 py-2.5">
             <summary className="text-sm font-semibold cursor-pointer">
               {t('export_setup_title', lang)}
             </summary>

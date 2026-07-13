@@ -61,7 +61,7 @@ function ReminderModal({ lang, list, onClose, onSet }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-ink/70 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
       onClick={onClose}
       dir={isRTL(lang) ? 'rtl' : 'ltr'}
     >
@@ -92,7 +92,7 @@ function ReminderModal({ lang, list, onClose, onSet }) {
           value={value}
           min={toLocalInput(Date.now())}
           onChange={(e) => setValue(e.target.value)}
-          className="w-full bg-white/70 border border-ink/15 rounded-xl px-4 py-3 text-base outline-none focus:border-leaf mb-3"
+          className="w-full bg-surface/70 border border-ink/15 rounded-xl px-4 py-3 text-base outline-none focus:border-leaf mb-3"
           dir="ltr"
         />
 

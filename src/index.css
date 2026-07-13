@@ -2,13 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Palette as RGB triplets so Tailwind opacity modifiers (bg-ink/10 etc.)
+   keep working; dark mode follows the system and just swaps the variables. */
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
+  --c-cream: 247 243 234;   /* page background */
+  --c-ink: 31 30 26;        /* text */
+  --c-leaf: 62 107 74;      /* primary green */
+  --c-rust: 180 85 45;      /* destructive orange */
+  --c-sand: 231 223 206;
+  --c-surface: 255 255 255; /* cards/inputs, used at /70 over cream */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-cream: 28 27 24;
+    --c-ink: 235 229 216;
+    --c-leaf: 130 172 142;
+    --c-rust: 214 126 88;
+    --c-sand: 55 53 47;
+    --c-surface: 56 54 48;
+  }
 }
 
 html, body {
-  background: #F7F3EA;
-  color: #1F1E1A;
+  background: rgb(var(--c-cream));
+  color: rgb(var(--c-ink));
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: none;
@@ -35,15 +54,15 @@ input[type='datetime-local'] {
 /* Checked items settle with a soft strike */
 .item-done {
   text-decoration: line-through;
-  text-decoration-color: rgba(31, 30, 26, 0.35);
+  text-decoration-color: rgb(var(--c-ink) / 0.35);
   opacity: 0.55;
 }
 
 /* Items changed by another device flash leaf-green, then settle back to the
-   row's usual white overlay */
+   row's usual surface overlay */
 @keyframes remote-flash {
-  0% { background-color: rgba(62, 107, 74, 0.28); }
-  100% { background-color: rgba(255, 255, 255, 0.7); }
+  0% { background-color: rgb(var(--c-leaf) / 0.28); }
+  100% { background-color: rgb(var(--c-surface) / 0.7); }
 }
 .remote-flash {
   animation: remote-flash 2s ease-out;

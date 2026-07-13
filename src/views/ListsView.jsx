@@ -65,7 +65,7 @@ function ListsView({ lang, setLang, lists, onCreate, onOpen, onDelete, onJoin })
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && create()}
           placeholder={t('new_list_ph', lang)}
-          className="flex-1 bg-white/70 border border-ink/15 rounded-xl px-4 py-3 text-base outline-none focus:border-leaf"
+          className="flex-1 bg-surface/70 border border-ink/15 rounded-xl px-4 py-3 text-base outline-none focus:border-leaf"
         />
         <button
           onClick={create}
@@ -95,7 +95,7 @@ function ListsView({ lang, setLang, lists, onCreate, onOpen, onDelete, onJoin })
                 onKeyDown={(e) => e.key === 'Enter' && join()}
                 placeholder={t('join_ph', lang)}
                 dir="ltr"
-                className="flex-1 min-w-0 bg-white/70 border border-ink/15 rounded-xl px-4 py-3 text-sm outline-none focus:border-leaf"
+                className="flex-1 min-w-0 bg-surface/70 border border-ink/15 rounded-xl px-4 py-3 text-sm outline-none focus:border-leaf"
               />
               <button
                 onClick={join}
@@ -131,7 +131,7 @@ function ListsView({ lang, setLang, lists, onCreate, onOpen, onDelete, onJoin })
             <div
               key={list.id}
               onClick={() => onOpen(list.id)}
-              className="bg-white/70 border border-ink/10 rounded-2xl px-4 py-4 flex items-center gap-3 cursor-pointer active:scale-[0.99] transition-transform"
+              className="bg-surface/70 border border-ink/10 rounded-2xl px-4 py-4 flex items-center gap-3 cursor-pointer active:scale-[0.99] transition-transform"
             >
               <div className="flex-1 min-w-0">
                 <div className="f-display text-xl font-bold truncate">{list.name}</div>

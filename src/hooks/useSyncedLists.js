@@ -124,7 +124,8 @@ export function useSyncedLists() {
       markRemote(merged.items
         .filter((si) => {
           const prev = prevById.get(si.id);
-          return !prev || prev.name !== si.name || prev.qty !== si.qty || prev.checked !== si.checked;
+          return !prev || prev.name !== si.name || prev.qty !== si.qty
+            || prev.checked !== si.checked || (prev.cat || null) !== (si.cat || null);
         })
         .map((i) => i.id));
     }
@@ -336,9 +337,9 @@ export function useSyncedLists() {
     const nextLists = listsRef.current.map((l) =>
       l.id === listId ? { ...l, items: l.items.map((i) => (i.id === itemId ? next : i)) } : l);
     // Photo-only patches are device-local — update state without a server op.
-    const shared = ['name', 'qty', 'checked'].some((k) => k in patch);
+    const shared = ['name', 'qty', 'checked', 'cat'].some((k) => k in patch);
     commit(nextLists, shared
-      ? { kind: 'putItem', listId, body: { id: next.id, name: next.name, qty: next.qty, checked: next.checked, createdAt: next.createdAt } }
+      ? { kind: 'putItem', listId, body: { id: next.id, name: next.name, qty: next.qty, checked: next.checked, createdAt: next.createdAt, cat: next.cat || null } }
       : null);
   };
 
@@ -399,7 +400,7 @@ export function useSyncedLists() {
         listsRef.current.map((l) => (l.id === listId ? { ...l, items } : l)),
         {
           kind: 'putItem', listId,
-          body: { id: restored.id, name: restored.name, qty: restored.qty, checked: restored.checked, createdAt: restored.createdAt },
+          body: { id: restored.id, name: restored.name, qty: restored.qty, checked: restored.checked, createdAt: restored.createdAt, cat: restored.cat || null },
         },
       );
       if (blobPromise) {
@@ -445,7 +446,7 @@ export function useSyncedLists() {
     for (const k of keepers) {
       sync.enqueue(queueRef.current, {
         kind: 'putItem', listId,
-        body: { id: k.id, name: k.name, qty: k.qty, checked: k.checked, createdAt: k.createdAt },
+        body: { id: k.id, name: k.name, qty: k.qty, checked: k.checked, createdAt: k.createdAt, cat: k.cat || null },
       });
     }
     sync.enqueue(queueRef.current, { kind: 'bulkDelete', listId, body: { ids: [...removedIds] } });

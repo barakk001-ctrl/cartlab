@@ -275,12 +275,15 @@ function categorize(name) {
   return best ? best.cat : 'other';
 }
 
+const isCategoryKey = (key) => CATEGORIES.some((c) => c.key === key);
+
 // Group items by category in store-walk order, preserving item order within
-// each group. Returns [{ key, label, items }] for non-empty groups only.
+// each group. An item's manual override (item.cat) wins over name matching.
+// Returns [{ key, label, items }] for non-empty groups only.
 function groupItems(items, lang) {
   const byCat = new Map();
   for (const item of items) {
-    const cat = categorize(item.name);
+    const cat = item.cat && isCategoryKey(item.cat) ? item.cat : categorize(item.name);
     if (!byCat.has(cat)) byCat.set(cat, []);
     byCat.get(cat).push(item);
   }
@@ -289,4 +292,13 @@ function groupItems(items, lang) {
     .map((c) => ({ key: c.key, label: lang === 'he' ? c.he : c.en, items: byCat.get(c.key) }));
 }
 
-export { suggest, categorize, groupItems };
+// All categories as picker options in the active language.
+const categoryOptions = (lang) =>
+  CATEGORIES.map((c) => ({ key: c.key, label: lang === 'he' ? c.he : c.en }));
+
+const categoryLabel = (key, lang) => {
+  const c = CATEGORIES.find((x) => x.key === key);
+  return c ? (lang === 'he' ? c.he : c.en) : '';
+};
+
+export { suggest, categorize, groupItems, categoryOptions, categoryLabel };

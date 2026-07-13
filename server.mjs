@@ -171,6 +171,8 @@ function parseItem(raw) {
     qty: Number.isInteger(raw.qty) ? Math.min(Math.max(raw.qty, 1), 999) : 1,
     checked: !!raw.checked,
     createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : null,
+    // manual category override; a short slug like "veg" (null = auto)
+    cat: typeof raw.cat === 'string' && /^[a-z]{2,16}$/.test(raw.cat) ? raw.cat : null,
   };
 }
 

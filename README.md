@@ -15,6 +15,8 @@ Shopping lists with photos and **lock-screen reminders**. Bilingual (EN/HE with 
 - **Sync status** — a small pill shows "Syncing…" when changes are still queueing and "Offline — changes will sync" when there's no connection.
 - **Swipe gestures** — swipe an item in the reading direction to check it off, the other way to delete (mirrored in RTL; undo covers mistakes).
 - **Live-edit flash** — items added or changed by another device flash green for a moment, so a partner's edits are visible as they happen.
+- **Category fix** — tap an item's name to file it under a different section when the automatic guess is wrong; the override syncs.
+- **Dark mode** — follows the system appearance (palette swaps via CSS variables; browser chrome follows through dual theme-color metas).
 - **Lock-screen reminders** — pick a date & time per list; a push notification arrives with the list name and the items still left to buy (e.g. `🛒 Groceries — Milk ×2 · Eggs · Bread`). Tapping it opens the app on that list. If you keep editing the list after setting the reminder, the notification text is kept in sync automatically.
 - **Export to Apple Reminders** — the "Apple Reminders" button on a list sends every unbought item into the native iOS Reminders app via a one-time Shortcut (see below). Native reminders sync across devices and appear on the lock screen. On non-iOS devices the button shares/copies the list instead.
 - **Shared lists** — every list lives on the server; the "Share list" button sends a link (`/#list=<id>`), and anyone who opens it joins the list. Edits sync live between devices (SSE change feed), per item, so two people can shop the same list at once without overwriting each other.

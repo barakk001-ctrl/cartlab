@@ -10,7 +10,7 @@ import { usePhoto } from '../hooks/usePhoto.js';
 const SWIPE_TRIGGER = 64;
 const SWIPE_MAX = 96;
 
-function ItemRow({ item, lang, listId, highlight, onToggle, onQty, onRemove, onPhoto, onOpenPhoto }) {
+function ItemRow({ item, lang, listId, highlight, onToggle, onQty, onRemove, onPhoto, onOpenPhoto, onOpenCategory }) {
   const fileRef = useRef(null);
   const photoUrl = usePhoto(listId, item.id, item.hasPhoto, item.photoRev || 0);
 
@@ -102,7 +102,7 @@ function ItemRow({ item, lang, listId, highlight, onToggle, onQty, onRemove, onP
           }
         }}
       >
-        <div className={`bg-white/70 border border-ink/10 rounded-2xl px-3 py-2.5 flex items-center gap-3 ${highlight ? 'remote-flash' : ''}`}>
+        <div className={`bg-surface/70 border border-ink/10 rounded-2xl px-3 py-2.5 flex items-center gap-3 ${highlight ? 'remote-flash' : ''}`}>
           {/* check circle */}
           <button
             onClick={onToggle}
@@ -130,9 +130,13 @@ function ItemRow({ item, lang, listId, highlight, onToggle, onQty, onRemove, onP
           )}
           <input ref={fileRef} type="file" accept="image/*" onChange={pickPhoto} hidden />
 
-          <span className={`flex-1 min-w-0 break-words text-[15px] ${item.checked ? 'item-done' : ''}`}>
+          {/* tapping the name opens the category picker */}
+          <button
+            onClick={onOpenCategory}
+            className={`flex-1 min-w-0 break-words text-start text-[15px] ${item.checked ? 'item-done' : ''}`}
+          >
             {item.name}
-          </span>
+          </button>
 
           {/* quantity stepper */}
           <div className="flex items-center gap-1 shrink-0" dir="ltr">

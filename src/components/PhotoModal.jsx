@@ -23,7 +23,7 @@ function PhotoModal({ lang, item, listId, onClose, onReplaced, onRemoved }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-ink/70 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
       onClick={onClose}
       dir={isRTL(lang) ? 'rtl' : 'ltr'}
     >

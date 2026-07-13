@@ -51,10 +51,12 @@ export function openStore(dataDir) {
   // Photo columns arrived after the first release — migrate old DBs in place.
   try { db.exec('ALTER TABLE items ADD COLUMN has_photo INTEGER NOT NULL DEFAULT 0'); } catch {}
   try { db.exec('ALTER TABLE items ADD COLUMN photo_rev INTEGER NOT NULL DEFAULT 0'); } catch {}
+  // Manual category override (null = auto-categorize by name client-side).
+  try { db.exec('ALTER TABLE items ADD COLUMN cat TEXT'); } catch {}
 
   const q = {
     getMeta: db.prepare('SELECT id, name, created_at, reminder_at, version FROM lists WHERE id = ?'),
-    getItems: db.prepare('SELECT id, name, qty, checked, created_at, has_photo, photo_rev FROM items WHERE list_id = ? ORDER BY created_at, id'),
+    getItems: db.prepare('SELECT id, name, qty, checked, created_at, has_photo, photo_rev, cat FROM items WHERE list_id = ? ORDER BY created_at, id'),
     getPhotoMeta: db.prepare('SELECT has_photo, photo_rev FROM items WHERE list_id = ? AND id = ?'),
     setPhotoMeta: db.prepare('UPDATE items SET has_photo = ?, photo_rev = photo_rev + 1 WHERE list_id = ? AND id = ?'),
     photoIds: db.prepare('SELECT id FROM items WHERE list_id = ? AND has_photo = 1'),
@@ -68,8 +70,8 @@ export function openStore(dataDir) {
     deleteList: db.prepare('DELETE FROM lists WHERE id = ?'),
     clearItems: db.prepare('DELETE FROM items WHERE list_id = ?'),
     upsertItem: db.prepare(`
-      INSERT INTO items (list_id, id, name, qty, checked, created_at) VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(list_id, id) DO UPDATE SET name = excluded.name, qty = excluded.qty, checked = excluded.checked
+      INSERT INTO items (list_id, id, name, qty, checked, created_at, cat) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(list_id, id) DO UPDATE SET name = excluded.name, qty = excluded.qty, checked = excluded.checked, cat = excluded.cat
     `),
     deleteItem: db.prepare('DELETE FROM items WHERE list_id = ? AND id = ?'),
   };
@@ -97,7 +99,7 @@ export function openStore(dataDir) {
       version: row.version,
       items: q.getItems.all(id).map((i) => ({
         id: i.id, name: i.name, qty: i.qty, checked: !!i.checked, createdAt: i.created_at,
-        hasPhoto: !!i.has_photo, photoRev: i.photo_rev,
+        hasPhoto: !!i.has_photo, photoRev: i.photo_rev, cat: i.cat,
       })),
     };
   }
@@ -120,7 +122,7 @@ export function openStore(dataDir) {
       q.clearItems.run(id);
       const base = Date.now();
       kept.forEach((it, i) =>
-        q.upsertItem.run(id, it.id, it.name, it.qty, it.checked ? 1 : 0, it.createdAt ?? base + i));
+        q.upsertItem.run(id, it.id, it.name, it.qty, it.checked ? 1 : 0, it.createdAt ?? base + i, it.cat ?? null));
       for (const pid of oldPhotos) {
         if (keptIds.has(pid)) q.setPhotoMeta.run(1, id, pid);
       }
@@ -160,7 +162,7 @@ export function openStore(dataDir) {
       if (!q.hasItem.get(listId, item.id) && q.countItems.get(listId).n >= MAX_ITEMS) {
         throw err(400, 'too many items');
       }
-      q.upsertItem.run(listId, item.id, item.name, item.qty, item.checked ? 1 : 0, item.createdAt ?? Date.now());
+      q.upsertItem.run(listId, item.id, item.name, item.qty, item.checked ? 1 : 0, item.createdAt ?? Date.now(), item.cat ?? null);
       q.bump.run(listId);
       return q.version.get(listId).version;
     });
