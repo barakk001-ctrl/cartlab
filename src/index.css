@@ -38,3 +38,13 @@ input[type='datetime-local'] {
   text-decoration-color: rgba(31, 30, 26, 0.35);
   opacity: 0.55;
 }
+
+/* Items changed by another device flash leaf-green, then settle back to the
+   row's usual white overlay */
+@keyframes remote-flash {
+  0% { background-color: rgba(62, 107, 74, 0.28); }
+  100% { background-color: rgba(255, 255, 255, 0.7); }
+}
+.remote-flash {
+  animation: remote-flash 2s ease-out;
+}

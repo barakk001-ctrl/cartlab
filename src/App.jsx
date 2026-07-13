@@ -22,7 +22,7 @@ export default function App() {
     addItem, patchItem, removeItem, clearChecked, dedupeItems,
     setItemPhoto, removeItemPhoto,
     joinList,
-    undoInfo, undoRemoval, syncState,
+    undoInfo, undoRemoval, syncState, remoteTouched,
   } = useSyncedLists();
 
   // Sync pill: offline shows immediately; "Syncing…" only if it lingers
@@ -105,6 +105,7 @@ export default function App() {
             lang={lang}
             list={active}
             knownNames={knownNames}
+            remoteTouched={remoteTouched}
             onBack={() => openList(null)}
             onAddItem={(name) => addItem(active.id, name)}
             onPatchItem={(itemId, patch) => patchItem(active.id, itemId, patch)}

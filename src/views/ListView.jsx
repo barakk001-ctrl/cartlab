@@ -12,7 +12,7 @@ import PhotoModal from '../components/PhotoModal.jsx';
 import ExportModal from '../components/ExportModal.jsx';
 
 function ListView({
-  lang, list, knownNames, onBack, onAddItem, onPatchItem, onRemoveItem,
+  lang, list, knownNames, remoteTouched, onBack, onAddItem, onPatchItem, onRemoveItem,
   onClearChecked, onSetReminder, onSetPhoto, onRemovePhoto, onDedupe, onDelete,
 }) {
   const [draft, setDraft] = useState('');
@@ -103,6 +103,7 @@ function ListView({
     item,
     lang,
     listId: list.id,
+    highlight: remoteTouched?.has(item.id) || false,
     onToggle: () => onPatchItem(item.id, { checked: !item.checked }),
     onQty: (delta) => onPatchItem(item.id, { qty: Math.max(1, item.qty + delta) }),
     onRemove: () => onRemoveItem(item.id),

@@ -47,6 +47,27 @@ export function useSyncedLists() {
     setSyncState(!busy ? 'synced' : offline ? 'offline' : 'pending');
   };
 
+  // Ids of items recently changed by another device — the UI flashes them so
+  // a partner's edits are visible instead of just teleporting in.
+  const [remoteTouched, setRemoteTouched] = useState(() => new Set());
+  const remoteTimersRef = useRef(new Map());
+  const markRemote = (ids) => {
+    if (!ids.length) return;
+    setRemoteTouched((prev) => new Set([...prev, ...ids]));
+    for (const id of ids) {
+      const old = remoteTimersRef.current.get(id);
+      if (old) clearTimeout(old);
+      remoteTimersRef.current.set(id, setTimeout(() => {
+        remoteTimersRef.current.delete(id);
+        setRemoteTouched((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }, 2500));
+    }
+  };
+
   // Undo window for removals: the delete is committed immediately (state +
   // queued ops), but a snapshot — including the photo blob, read before it's
   // wiped — survives for a few seconds so Undo can recreate everything.
@@ -96,6 +117,17 @@ export function useSyncedLists() {
     persistVersions();
     syncedRef.current.add(server.id);
     persistSynced();
+    // Anything new or different vs. what we had is a remote edit (our own
+    // optimistic edits already match the server copy by the time it arrives).
+    if (local) {
+      const prevById = new Map(local.items.map((i) => [i.id, i]));
+      markRemote(merged.items
+        .filter((si) => {
+          const prev = prevById.get(si.id);
+          return !prev || prev.name !== si.name || prev.qty !== si.qty || prev.checked !== si.checked;
+        })
+        .map((i) => i.id));
+    }
     setLists(local
       ? listsRef.current.map((l) => (l.id === server.id ? merged : l))
       : [merged, ...listsRef.current]);
@@ -540,6 +572,7 @@ export function useSyncedLists() {
       window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVisible);
       if (retryRef.current) clearTimeout(retryRef.current);
+      for (const timer of remoteTimersRef.current.values()) clearTimeout(timer);
       esRef.current?.close();
     };
   }, []);
@@ -550,6 +583,6 @@ export function useSyncedLists() {
     addItem, patchItem, removeItem, clearChecked, dedupeItems,
     setItemPhoto, removeItemPhoto,
     joinList,
-    undoInfo, undoRemoval, syncState,
+    undoInfo, undoRemoval, syncState, remoteTouched,
   };
 }
