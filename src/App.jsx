@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { isRTL } from './i18n.js';
+import { RotateCcw, WifiOff } from 'lucide-react';
+import { isRTL, t } from './i18n.js';
 import { loadLang, saveLang } from './storage.js';
 import { useSyncedLists } from './hooks/useSyncedLists.js';
 import { useWakeLock } from './hooks/useWakeLock.js';
@@ -21,7 +22,20 @@ export default function App() {
     addItem, patchItem, removeItem, clearChecked, dedupeItems,
     setItemPhoto, removeItemPhoto,
     joinList,
+    undoInfo, undoRemoval, syncState,
   } = useSyncedLists();
+
+  // Sync pill: offline shows immediately; "Syncing…" only if it lingers
+  // (>800ms), so every quick tap doesn't flash a pill.
+  const [showPending, setShowPending] = useState(false);
+  useEffect(() => {
+    if (syncState !== 'pending') { setShowPending(false); return; }
+    const handle = setTimeout(() => setShowPending(true), 800);
+    return () => clearTimeout(handle);
+  }, [syncState]);
+  const syncPill = syncState === 'offline'
+    ? t('sync_offline', lang)
+    : syncState === 'pending' && showPending ? t('sync_pending', lang) : null;
 
   // Every item name the user has ever put on a list — feeds autocomplete.
   const knownNames = useMemo(
@@ -114,6 +128,32 @@ export default function App() {
           />
         )}
       </div>
+
+      {syncPill && (
+        <div className="fixed bottom-16 inset-x-0 flex justify-center z-30 pointer-events-none px-4">
+          <div className="bg-ink/85 text-cream text-xs rounded-full px-3.5 py-1.5 shadow-lg flex items-center gap-1.5">
+            {syncState === 'offline' && <WifiOff size={12} strokeWidth={2.5} />}
+            {syncPill}
+          </div>
+        </div>
+      )}
+
+      {undoInfo && (
+        <div className="fixed bottom-4 inset-x-0 flex justify-center z-40 px-4">
+          <button
+            onClick={undoRemoval}
+            className="bg-ink text-cream rounded-full ps-5 pe-4 py-3 flex items-center gap-3 shadow-xl"
+          >
+            <span className="text-sm">
+              {undoInfo.count === 1 ? t('removed_one', lang) : t('removed_many', lang, { n: undoInfo.count })}
+            </span>
+            <span className="flex items-center gap-1.5 text-sm font-bold text-cream bg-leaf rounded-full px-3 py-1">
+              <RotateCcw size={13} strokeWidth={2.5} />
+              {t('undo', lang)}
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

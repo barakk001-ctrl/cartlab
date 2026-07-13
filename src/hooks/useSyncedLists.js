@@ -14,7 +14,7 @@
 // ------------------------------------------------------------
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../api.js';
-import { loadLists, saveLists, uid } from '../storage.js';
+import { bumpHistory, loadLists, saveLists, uid } from '../storage.js';
 import { deletePhoto, deletePhotos, getPhoto, savePhoto } from '../db.js';
 import { cancelReminder, reminderIdFor } from '../push.js';
 import * as sync from '../sync.js';
@@ -39,6 +39,29 @@ export function useSyncedLists() {
   const flushingRef = useRef(false);
   const retryRef = useRef(null);
   const esRef = useRef(null);
+
+  // 'synced' | 'pending' (ops queued/flushing) | 'offline' (flush failed)
+  const [syncState, setSyncState] = useState('synced');
+  const refreshSyncState = (offline = false) => {
+    const busy = queueRef.current.length + photoQueueRef.current.length > 0;
+    setSyncState(!busy ? 'synced' : offline ? 'offline' : 'pending');
+  };
+
+  // Undo window for removals: the delete is committed immediately (state +
+  // queued ops), but a snapshot — including the photo blob, read before it's
+  // wiped — survives for a few seconds so Undo can recreate everything.
+  const [undoInfo, setUndoInfo] = useState(null);
+  const undoRef = useRef({ entries: [], timer: null });
+
+  const stageUndo = (entries) => {
+    undoRef.current.entries.push(...entries);
+    if (undoRef.current.timer) clearTimeout(undoRef.current.timer);
+    undoRef.current.timer = setTimeout(() => {
+      undoRef.current = { entries: [], timer: null };
+      setUndoInfo(null);
+    }, 6000);
+    setUndoInfo({ count: undoRef.current.entries.length });
+  };
 
   const setLists = (next) => {
     listsRef.current = next;
@@ -172,11 +195,13 @@ export function useSyncedLists() {
             staleRef.current.add(op.listId);
           } else {
             op.inFlight = false;
+            refreshSyncState(true);
             scheduleRetry();
             return;
           }
         }
       }
+      refreshSyncState();
       const stale = [...staleRef.current];
       staleRef.current.clear();
       await Promise.all(stale.map(refetch));
@@ -213,11 +238,13 @@ export function useSyncedLists() {
             staleRef.current.add(op.listId);
           } else {
             op.inFlight = false;
+            refreshSyncState(true);
             scheduleRetry(); // offline / server unreachable — keep the queue
             return;
           }
         }
       }
+      refreshSyncState();
       const stale = [...staleRef.current];
       staleRef.current.clear();
       await Promise.all(stale.map(refetch));
@@ -231,6 +258,7 @@ export function useSyncedLists() {
     if (op) {
       sync.enqueue(queueRef.current, op);
       persistQueue();
+      refreshSyncState();
       flush();
     }
   };
@@ -272,6 +300,7 @@ export function useSyncedLists() {
     const item = list?.items.find((i) => i.id === itemId);
     if (!item) return;
     const next = { ...item, ...patch };
+    if (patch.checked === true && !item.checked) bumpHistory(item.name); // bought → learn it
     const nextLists = listsRef.current.map((l) =>
       l.id === listId ? { ...l, items: l.items.map((i) => (i.id === itemId ? next : i)) } : l);
     // Photo-only patches are device-local — update state without a server op.
@@ -281,26 +310,72 @@ export function useSyncedLists() {
       : null);
   };
 
+  // Snapshot an item for undo. The photo blob is read before deletion —
+  // IndexedDB runs the get before the delete because the transactions are
+  // created in that order.
+  const snapshotItem = (listId, list, item) => ({
+    listId,
+    item,
+    index: list.items.indexOf(item),
+    blobPromise: item.hasPhoto ? getPhoto(item.id).catch(() => null) : null,
+  });
+
   const removeItem = (listId, itemId) => {
+    const list = listsRef.current.find((l) => l.id === listId);
+    const item = list?.items.find((i) => i.id === itemId);
+    if (!item) return;
+    const snapshot = snapshotItem(listId, list, item);
     deletePhoto(itemId).catch(() => {});
     commit(
       listsRef.current.map((l) =>
         l.id === listId ? { ...l, items: l.items.filter((i) => i.id !== itemId) } : l),
       { kind: 'deleteItem', listId, itemId },
     );
+    stageUndo([snapshot]);
   };
 
   const clearChecked = (listId) => {
     const list = listsRef.current.find((l) => l.id === listId);
     if (!list) return;
-    const ids = list.items.filter((i) => i.checked).map((i) => i.id);
-    if (!ids.length) return;
-    deletePhotos(ids).catch(() => {});
+    const removed = list.items.filter((i) => i.checked);
+    if (!removed.length) return;
+    const snapshots = removed.map((i) => snapshotItem(listId, list, i));
+    deletePhotos(removed.map((i) => i.id)).catch(() => {});
     commit(
       listsRef.current.map((l) =>
         l.id === listId ? { ...l, items: l.items.filter((i) => !i.checked) } : l),
-      { kind: 'bulkDelete', listId, body: { ids } },
+      { kind: 'bulkDelete', listId, body: { ids: removed.map((i) => i.id) } },
     );
+    stageUndo(snapshots);
+  };
+
+  // Recreate everything the last removal(s) took: the items (same ids, so
+  // they return to their original spot in the ordering) and their photos,
+  // which re-upload through the normal photo queue.
+  const undoRemoval = () => {
+    const { entries, timer } = undoRef.current;
+    if (timer) clearTimeout(timer);
+    undoRef.current = { entries: [], timer: null };
+    setUndoInfo(null);
+    for (const { listId, item, index, blobPromise } of entries) {
+      const list = listsRef.current.find((l) => l.id === listId);
+      if (!list || list.items.some((i) => i.id === item.id)) continue;
+      const restored = { ...item, hasPhoto: false, photoRev: 0 };
+      const items = [...list.items];
+      items.splice(Math.min(index, items.length), 0, restored);
+      commit(
+        listsRef.current.map((l) => (l.id === listId ? { ...l, items } : l)),
+        {
+          kind: 'putItem', listId,
+          body: { id: restored.id, name: restored.name, qty: restored.qty, checked: restored.checked, createdAt: restored.createdAt },
+        },
+      );
+      if (blobPromise) {
+        blobPromise.then((entry) => {
+          if (entry?.blob) setItemPhoto(listId, item.id, entry.blob);
+        });
+      }
+    }
   };
 
   // Merge items with the same (case-insensitive) name: one survivor per name
@@ -354,6 +429,7 @@ export function useSyncedLists() {
     patchItem(listId, itemId, { hasPhoto: true, photoRev: 0 });
     sync.enqueuePhoto(photoQueueRef.current, { listId, itemId });
     sync.savePhotoQueue(photoQueueRef.current);
+    refreshSyncState();
     flushPhotos();
   };
 
@@ -362,6 +438,7 @@ export function useSyncedLists() {
     patchItem(listId, itemId, { hasPhoto: false, photoRev: 0 });
     sync.enqueuePhoto(photoQueueRef.current, { listId, itemId, remove: true });
     sync.savePhotoQueue(photoQueueRef.current);
+    refreshSyncState();
     flushPhotos();
   };
 
@@ -473,5 +550,6 @@ export function useSyncedLists() {
     addItem, patchItem, removeItem, clearChecked, dedupeItems,
     setItemPhoto, removeItemPhoto,
     joinList,
+    undoInfo, undoRemoval, syncState,
   };
 }

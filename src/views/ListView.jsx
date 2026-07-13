@@ -2,6 +2,7 @@ import { Bell, ChevronLeft, ChevronRight, Copy, ListTodo, Plus, Share2, Trash2, 
 import { useMemo, useState } from 'react';
 import { formatWhen, isRTL, t } from '../i18n.js';
 import { groupItems, suggest } from '../catalog.js';
+import { topHistory } from '../storage.js';
 import { IS_IOS, isStandalone } from '../push.js';
 
 const APP_HINT_KEY = 'cartlab:appHintDismissed';
@@ -75,6 +76,13 @@ function ListView({
       exclude: items.map((i) => i.name),
     }),
     [draft, lang, knownNames, items],
+  );
+
+  // One-tap re-add of the things this user buys again and again. Hidden
+  // while typing (autocomplete takes over) and for items already listed.
+  const frequent = useMemo(
+    () => (draft.trim() ? [] : topHistory(items.map((i) => i.name), 8)),
+    [draft, items],
   );
 
   // Anyone who opens the link joins the list and edits live.
@@ -205,6 +213,26 @@ function ListView({
           </div>
         )}
       </div>
+
+      {frequent.length > 0 && (
+        <div className="mb-6 -mt-2">
+          <h3 className="f-mono text-[10px] uppercase tracking-[0.2em] opacity-45 mb-2">
+            {t('frequent', lang)}
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {frequent.map((name) => (
+              <button
+                key={name}
+                onClick={() => addItem(name)}
+                className="inline-flex items-center gap-1.5 bg-white/70 border border-ink/15 rounded-full px-3 py-1.5 text-[13px] active:scale-95 transition-transform"
+              >
+                <Plus size={12} strokeWidth={2.5} className="text-leaf" />
+                {name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {items.length === 0 && (
         <p className="text-sm opacity-60 py-8 text-center">{t('empty_list', lang)}</p>
