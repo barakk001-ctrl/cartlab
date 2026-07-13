@@ -1,4 +1,4 @@
-import { Bell, ChevronLeft, ChevronRight, Copy, ListTodo, Plus, Share2, Trash2, X } from 'lucide-react';
+import { Bell, ChevronLeft, ChevronRight, Copy, ListTodo, MapPin, Plus, Share2, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatWhen, isRTL, t } from '../i18n.js';
 import { groupItems, suggest } from '../catalog.js';
@@ -11,6 +11,7 @@ import ReminderModal from '../components/ReminderModal.jsx';
 import PhotoModal from '../components/PhotoModal.jsx';
 import ExportModal from '../components/ExportModal.jsx';
 import ItemModal from '../components/ItemModal.jsx';
+import LocationModal from '../components/LocationModal.jsx';
 
 function ListView({
   lang, list, knownNames, remoteTouched, onBack, onAddItem, onPatchItem, onRemoveItem,
@@ -19,6 +20,7 @@ function ListView({
   const [draft, setDraft] = useState('');
   const [reminderOpen, setReminderOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [locOpen, setLocOpen] = useState(false);
   const [photoItem, setPhotoItem] = useState(null); // item shown in the photo modal
   const [detailItem, setDetailItem] = useState(null); // item shown in the note/category sheet
   const [shareCopied, setShareCopied] = useState(false);
@@ -174,6 +176,13 @@ function ListView({
             <Share2 size={15} strokeWidth={2.5} />
             {shareCopied ? t('share_copied', lang) : t('share_list', lang)}
           </button>
+          <button
+            onClick={() => setLocOpen(true)}
+            className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold border border-ink/25 text-ink/70"
+          >
+            <MapPin size={15} strokeWidth={2.5} />
+            {t('loc_btn', lang)}
+          </button>
         </div>
       </header>
 
@@ -309,6 +318,10 @@ function ListView({
 
       {exportOpen && (
         <ExportModal lang={lang} list={list} onClose={() => setExportOpen(false)} />
+      )}
+
+      {locOpen && (
+        <LocationModal lang={lang} list={list} onClose={() => setLocOpen(false)} />
       )}
 
       {celebrate && (

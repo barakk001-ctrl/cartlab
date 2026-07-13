@@ -346,6 +346,33 @@ app.get('/api/lists/:id/items/:itemId/photo', guard((req, res) => {
   res.type('image/jpeg').sendFile(file);
 }));
 
+// Location alert for an iOS Shortcuts "When I arrive" automation: plain-text
+// list summary when at least `min` items are unbought, empty body otherwise.
+// The Shortcut fetches this URL on arrival and shows a notification only
+// when there's text — the web app itself can't geofence in the background.
+app.get('/api/lists/:id/alert', guard((req, res) => {
+  const id = requireListId(req, res);
+  if (!id) return;
+  res.type('text/plain; charset=utf-8');
+  const list = store.getList(id);
+  if (!list) return res.status(404).send('');
+  const left = list.items.filter((i) => !i.checked);
+  const min = Math.max(1, Math.min(500, Number(req.query.min) || 1));
+  if (left.length < min) return res.send('');
+  const he = req.query.lang === 'he';
+  const UNIT_TXT = { kg: he ? 'ק"ג' : 'kg', g: he ? 'גרם' : 'g', l: he ? 'ליטר' : 'L', pack: he ? 'מארז' : 'pack' };
+  const items = left.map((i) => {
+    if (i.unit) {
+      const qty = i.qty % 1 === 0 ? i.qty : Math.round(i.qty * 10) / 10;
+      return `${i.name} ${qty} ${UNIT_TXT[i.unit] || i.unit}`;
+    }
+    return i.qty > 1 ? `${i.name} ×${i.qty}` : i.name;
+  }).join(' · ');
+  let text = `🛒 ${list.name} — ${items}`;
+  if (text.length > 500) text = text.slice(0, 497) + '…';
+  res.send(text);
+}));
+
 // Bulk delete ("clear bought items") — one round-trip, one version bump.
 app.post('/api/lists/:id/items/bulk-delete', guard((req, res) => {
   const id = requireListId(req, res);
