@@ -28,6 +28,7 @@ async function call(method, url, body) {
 const stripItem = (i) => ({
   id: i.id, name: i.name, qty: i.qty, checked: !!i.checked, createdAt: i.createdAt,
   cat: i.cat || null, unit: i.unit || null, note: i.note || null, urgent: !!i.urgent,
+  checkedAt: i.checkedAt ?? null,
 });
 
 const stripList = (l) => ({

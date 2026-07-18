@@ -168,6 +168,7 @@ function parseItem(raw) {
   const name = parseName(raw.name);
   if (!name) return null;
   const qty = Number(raw.qty);
+  const checkedAt = Number(raw.checkedAt);
   return {
     id: raw.id,
     name,
@@ -180,6 +181,11 @@ function parseItem(raw) {
     unit: UNITS.has(raw.unit) ? raw.unit : null,
     note: typeof raw.note === 'string' && raw.note.trim() ? raw.note.trim().slice(0, 300) : null,
     urgent: !!raw.urgent,
+    // when it was checked off (drives the "Just bought" section); clamped so
+    // a bad clock can't pin an item there forever
+    checkedAt: raw.checked && Number.isFinite(checkedAt) && checkedAt > 0
+      ? Math.min(checkedAt, Date.now() + 60000)
+      : null,
   };
 }
 

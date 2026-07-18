@@ -28,6 +28,7 @@ const normalizeReminder = (at) => (at && at > Date.now() ? at : null);
 const sharedItemBody = (i) => ({
   id: i.id, name: i.name, qty: i.qty, checked: i.checked, createdAt: i.createdAt,
   cat: i.cat || null, unit: i.unit || null, note: i.note || null, urgent: !!i.urgent,
+  checkedAt: i.checkedAt ?? null,
 });
 
 export function useSyncedLists() {
@@ -341,6 +342,10 @@ export function useSyncedLists() {
     const item = list?.items.find((i) => i.id === itemId);
     if (!item) return;
     const next = { ...item, ...patch };
+    // Stamp when the item lands in the cart — the "Just bought" section keys
+    // off this — and clear it when it's unchecked back onto the list.
+    if (patch.checked === true && !item.checked) next.checkedAt = Date.now();
+    if (patch.checked === false) next.checkedAt = null;
     if (patch.checked === true && !item.checked) bumpHistory(item.name); // bought → learn it
     const nextLists = listsRef.current.map((l) =>
       l.id === listId ? { ...l, items: l.items.map((i) => (i.id === itemId ? next : i)) } : l);

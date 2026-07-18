@@ -70,10 +70,13 @@ export function openStore(dataDir) {
   // Device timezone + last daily-digest date, for the 7 AM urgent summary.
   try { db.exec('ALTER TABLE subs ADD COLUMN tz TEXT'); } catch {}
   try { db.exec('ALTER TABLE subs ADD COLUMN last_daily TEXT'); } catch {}
+  // When the item was checked off — drives the client's temporary
+  // "Just bought" section (recently checked items shown above older ones).
+  try { db.exec('ALTER TABLE items ADD COLUMN checked_at INTEGER'); } catch {}
 
   const q = {
     getMeta: db.prepare('SELECT id, name, created_at, reminder_at, version FROM lists WHERE id = ?'),
-    getItems: db.prepare('SELECT id, name, qty, checked, created_at, has_photo, photo_rev, cat, unit, note, urgent FROM items WHERE list_id = ? ORDER BY created_at, id'),
+    getItems: db.prepare('SELECT id, name, qty, checked, created_at, has_photo, photo_rev, cat, unit, note, urgent, checked_at FROM items WHERE list_id = ? ORDER BY created_at, id'),
     itemUrgent: db.prepare('SELECT urgent FROM items WHERE list_id = ? AND id = ?'),
     getPhotoMeta: db.prepare('SELECT has_photo, photo_rev FROM items WHERE list_id = ? AND id = ?'),
     setPhotoMeta: db.prepare('UPDATE items SET has_photo = ?, photo_rev = photo_rev + 1 WHERE list_id = ? AND id = ?'),
@@ -87,10 +90,11 @@ export function openStore(dataDir) {
     deleteList: db.prepare('DELETE FROM lists WHERE id = ?'),
     clearItems: db.prepare('DELETE FROM items WHERE list_id = ?'),
     upsertItem: db.prepare(`
-      INSERT INTO items (list_id, id, name, qty, checked, created_at, cat, unit, note, urgent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO items (list_id, id, name, qty, checked, created_at, cat, unit, note, urgent, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(list_id, id) DO UPDATE SET
         name = excluded.name, qty = excluded.qty, checked = excluded.checked,
-        cat = excluded.cat, unit = excluded.unit, note = excluded.note, urgent = excluded.urgent
+        cat = excluded.cat, unit = excluded.unit, note = excluded.note, urgent = excluded.urgent,
+        checked_at = excluded.checked_at
     `),
     deleteItem: db.prepare('DELETE FROM items WHERE list_id = ? AND id = ?'),
     setSub: db.prepare(`
@@ -130,7 +134,7 @@ export function openStore(dataDir) {
       items: q.getItems.all(id).map((i) => ({
         id: i.id, name: i.name, qty: i.qty, checked: !!i.checked, createdAt: i.created_at,
         hasPhoto: !!i.has_photo, photoRev: i.photo_rev, cat: i.cat, unit: i.unit, note: i.note,
-        urgent: !!i.urgent,
+        urgent: !!i.urgent, checkedAt: i.checked_at,
       })),
     };
   }
@@ -153,7 +157,7 @@ export function openStore(dataDir) {
       q.clearItems.run(id);
       const base = Date.now();
       kept.forEach((it, i) =>
-        q.upsertItem.run(id, it.id, it.name, it.qty, it.checked ? 1 : 0, it.createdAt ?? base + i, it.cat ?? null, it.unit ?? null, it.note ?? null, it.urgent ? 1 : 0));
+        q.upsertItem.run(id, it.id, it.name, it.qty, it.checked ? 1 : 0, it.createdAt ?? base + i, it.cat ?? null, it.unit ?? null, it.note ?? null, it.urgent ? 1 : 0, it.checkedAt ?? null));
       for (const pid of oldPhotos) {
         if (keptIds.has(pid)) q.setPhotoMeta.run(1, id, pid);
       }
@@ -197,7 +201,7 @@ export function openStore(dataDir) {
       if (!prev && q.countItems.get(listId).n >= MAX_ITEMS) {
         throw err(400, 'too many items');
       }
-      q.upsertItem.run(listId, item.id, item.name, item.qty, item.checked ? 1 : 0, item.createdAt ?? Date.now(), item.cat ?? null, item.unit ?? null, item.note ?? null, item.urgent ? 1 : 0);
+      q.upsertItem.run(listId, item.id, item.name, item.qty, item.checked ? 1 : 0, item.createdAt ?? Date.now(), item.cat ?? null, item.unit ?? null, item.note ?? null, item.urgent ? 1 : 0, item.checkedAt ?? null);
       q.bump.run(listId);
       return {
         version: q.version.get(listId).version,

@@ -50,6 +50,20 @@ function ListView({
   const toBuy = items.filter((i) => !i.checked);
   const inCart = items.filter((i) => i.checked);
 
+  // Freshly checked items linger in a temporary "Just bought" section for 10
+  // minutes — right below "To buy", above the older cart items — so what was
+  // just grabbed stays in view (and is easy to un-check by mistake-tap). A
+  // slow tick ages them down into "In cart".
+  const TEMP_MS = 10 * 60 * 1000;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const handle = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(handle);
+  }, []);
+  const isFresh = (i) => i.checkedAt && now - i.checkedAt < TEMP_MS;
+  const justBought = inCart.filter(isFresh).sort((a, b) => b.checkedAt - a.checkedAt);
+  const boughtEarlier = inCart.filter((i) => !isFresh(i));
+
   // Urgent items jump the queue: they render in their own section above the
   // store-section groups, so they're the first thing anyone opening the list
   // (say, from an urgent notification) sees.
@@ -307,18 +321,36 @@ function ListView({
         </section>
       )}
 
-      {inCart.length > 0 && (
+      {justBought.length > 0 && (
+        <section className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="f-mono text-[11px] uppercase tracking-[0.25em] opacity-50">
+              {t('just_bought', lang)} — {justBought.length}
+            </h2>
+            {boughtEarlier.length === 0 && (
+              <button onClick={onClearChecked} className="text-xs text-rust font-semibold">
+                {t('clear_checked', lang)}
+              </button>
+            )}
+          </div>
+          <div className="space-y-2">
+            {justBought.map((item) => <ItemRow key={item.id} {...rowProps(item)} />)}
+          </div>
+        </section>
+      )}
+
+      {boughtEarlier.length > 0 && (
         <section>
           <div className="flex items-center justify-between mb-2">
             <h2 className="f-mono text-[11px] uppercase tracking-[0.25em] opacity-50">
-              {t('in_cart', lang)} — {inCart.length}
+              {t('in_cart', lang)} — {boughtEarlier.length}
             </h2>
             <button onClick={onClearChecked} className="text-xs text-rust font-semibold">
               {t('clear_checked', lang)}
             </button>
           </div>
           <div className="space-y-2">
-            {inCart.map((item) => <ItemRow key={item.id} {...rowProps(item)} />)}
+            {boughtEarlier.map((item) => <ItemRow key={item.id} {...rowProps(item)} />)}
           </div>
         </section>
       )}
