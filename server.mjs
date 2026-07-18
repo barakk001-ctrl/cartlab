@@ -355,13 +355,15 @@ app.post('/api/lists/:id/subscribe', guard((req, res) => {
 
 // Fire-and-forget fan-out. A 404/410 from the push service means the
 // subscription is dead — drop it so the list doesn't accumulate corpses.
-async function notifyUrgent(listId, item) {
+async function notifyUrgent(listId, item, rebump = false) {
   const list = store.getList(listId);
   if (!list) return;
   for (const sub of store.getSubs(listId)) {
     const he = sub.lang === 'he';
     const title = he ? `🚨 דחוף: ${item.name}` : `🚨 Urgent: ${item.name}`;
-    let body = he ? `נוסף לרשימה "${list.name}"` : `Added to "${list.name}"`;
+    let body = rebump
+      ? (he ? `עדיין מחכה ברשימה "${list.name}"` : `Still waiting on "${list.name}"`)
+      : (he ? `נוסף לרשימה "${list.name}"` : `Added to "${list.name}"`);
     if (item.note) body += ` — ${item.note}`;
     try {
       await webpush.sendNotification(
@@ -384,6 +386,24 @@ async function notifyUrgent(listId, item) {
 // the morning still delivers.
 const DAILY_FROM_HOUR = 7;
 const DAILY_UNTIL_HOUR = 12;
+
+// Re-bump: while an urgent item stays unbought, its notification is re-sent
+// every 30 minutes for 3 hours after it was marked. The per-item tag makes
+// each re-send *replace* the previous notification, so it jumps back to the
+// top of the lock-screen stack (the closest thing web push has to pinning)
+// instead of piling up. Buying or un-marking the item stops the nagging.
+// Env overrides exist for tests only.
+const URGENT_SCAN_MS = parseInt(process.env.URGENT_SCAN_MS || '60000', 10);
+const REBUMP_EVERY_MS = parseInt(process.env.URGENT_REBUMP_EVERY_MS || String(30 * 60000), 10);
+const REBUMP_WINDOW_MS = parseInt(process.env.URGENT_REBUMP_WINDOW_MS || String(3 * 3600000), 10);
+
+async function rebumpScan() {
+  const now = Date.now();
+  for (const item of store.bumpDue(now - REBUMP_WINDOW_MS, now - REBUMP_EVERY_MS)) {
+    store.markBumped(item.listId, item.id, now); // mark first — a failed send shouldn't retry-spam
+    await notifyUrgent(item.listId, item, true);
+  }
+}
 
 async function dailyUrgentScan() {
   for (const listId of store.urgentListIds()) {
@@ -412,7 +432,10 @@ async function dailyUrgentScan() {
 }
 
 if (pushEnabled) {
-  setInterval(() => dailyUrgentScan().catch((e) => console.warn('daily scan failed:', e.message)), 60000).unref();
+  setInterval(() => {
+    dailyUrgentScan().catch((e) => console.warn('daily scan failed:', e.message));
+    rebumpScan().catch((e) => console.warn('rebump scan failed:', e.message));
+  }, URGENT_SCAN_MS).unref();
 }
 
 // Per-item upsert — add and edit both land here (last write wins per item).

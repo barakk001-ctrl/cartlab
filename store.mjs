@@ -73,6 +73,10 @@ export function openStore(dataDir) {
   // When the item was checked off — drives the client's temporary
   // "Just bought" section (recently checked items shown above older ones).
   try { db.exec('ALTER TABLE items ADD COLUMN checked_at INTEGER'); } catch {}
+  // Server-owned re-bump bookkeeping: when the item turned urgent, and when
+  // its notification was last (re)sent. Not exposed to clients.
+  try { db.exec('ALTER TABLE items ADD COLUMN urgent_at INTEGER'); } catch {}
+  try { db.exec('ALTER TABLE items ADD COLUMN urgent_bumped_at INTEGER'); } catch {}
 
   const q = {
     getMeta: db.prepare('SELECT id, name, created_at, reminder_at, version FROM lists WHERE id = ?'),
@@ -105,6 +109,13 @@ export function openStore(dataDir) {
     getSubs: db.prepare('SELECT device_id, lang, subscription, tz, last_daily FROM subs WHERE list_id = ?'),
     setSubDaily: db.prepare('UPDATE subs SET last_daily = ? WHERE list_id = ? AND device_id = ?'),
     urgentListIds: db.prepare('SELECT DISTINCT list_id FROM items WHERE urgent = 1 AND checked = 0'),
+    setUrgentAt: db.prepare('UPDATE items SET urgent_at = ?, urgent_bumped_at = ? WHERE list_id = ? AND id = ?'),
+    clearUrgentAt: db.prepare('UPDATE items SET urgent_at = NULL, urgent_bumped_at = NULL WHERE list_id = ? AND id = ?'),
+    bumpDue: db.prepare(`
+      SELECT list_id, id, name, note FROM items
+      WHERE urgent = 1 AND checked = 0 AND urgent_at IS NOT NULL AND urgent_at > ? AND urgent_bumped_at <= ?
+    `),
+    markBumped: db.prepare('UPDATE items SET urgent_bumped_at = ? WHERE list_id = ? AND id = ?'),
     countSubs: db.prepare('SELECT COUNT(*) AS n FROM subs WHERE list_id = ?'),
     hasSub: db.prepare('SELECT 1 AS x FROM subs WHERE list_id = ? AND device_id = ?'),
     deleteSub: db.prepare('DELETE FROM subs WHERE list_id = ? AND device_id = ?'),
@@ -202,11 +213,14 @@ export function openStore(dataDir) {
         throw err(400, 'too many items');
       }
       q.upsertItem.run(listId, item.id, item.name, item.qty, item.checked ? 1 : 0, item.createdAt ?? Date.now(), item.cat ?? null, item.unit ?? null, item.note ?? null, item.urgent ? 1 : 0, item.checkedAt ?? null);
+      const becameUrgent = !!item.urgent && !item.checked && !prev?.urgent;
+      // Anchor the re-bump window at the transition; the initial notification
+      // goes out right after this write, so it counts as the first bump.
+      const now = Date.now();
+      if (becameUrgent) q.setUrgentAt.run(now, now, listId, item.id);
+      else if (!item.urgent) q.clearUrgentAt.run(listId, item.id);
       q.bump.run(listId);
-      return {
-        version: q.version.get(listId).version,
-        becameUrgent: !!item.urgent && !item.checked && !prev?.urgent,
-      };
+      return { version: q.version.get(listId).version, becameUrgent };
     });
   }
 
@@ -257,6 +271,12 @@ export function openStore(dataDir) {
   const setSubDaily = (listId, deviceId, date) => { q.setSubDaily.run(date, listId, deviceId); };
   const urgentListIds = () => q.urgentListIds.all().map((r) => r.list_id);
 
+  // Urgent items due for a notification re-bump: still urgent + unbought,
+  // marked after `oldestAt`, last sent before `bumpedBefore`.
+  const bumpDue = (oldestAt, bumpedBefore) =>
+    q.bumpDue.all(oldestAt, bumpedBefore).map((r) => ({ listId: r.list_id, id: r.id, name: r.name, note: r.note }));
+  const markBumped = (listId, itemId, at) => { q.markBumped.run(at, listId, itemId); };
+
   // ---- photos ----
 
   function setPhoto(listId, itemId, buffer) {
@@ -294,6 +314,6 @@ export function openStore(dataDir) {
   return {
     getList, upsertList, patchList, deleteList, upsertItem, deleteItems,
     setPhoto, removePhoto, getPhotoFile,
-    setSub, getSubs, removeSub, setSubDaily, urgentListIds,
+    setSub, getSubs, removeSub, setSubDaily, urgentListIds, bumpDue, markBumped,
   };
 }
