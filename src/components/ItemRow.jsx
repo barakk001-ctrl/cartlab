@@ -1,4 +1,4 @@
-import { Camera, Check, Minus, Plus, X } from 'lucide-react';
+import { AlertTriangle, Camera, Check, Minus, Plus, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { isRTL, t } from '../i18n.js';
 import { compressImage } from '../db.js';
@@ -103,7 +103,9 @@ function ItemRow({ item, lang, listId, highlight, onToggle, onPatch, onRemove, o
           }
         }}
       >
-        <div className={`bg-surface/70 border border-ink/10 rounded-2xl px-3 py-2.5 flex items-center gap-3 ${highlight ? 'remote-flash' : ''}`}>
+        <div className={`bg-surface/70 border rounded-2xl px-3 py-2.5 flex items-center gap-3 ${
+          item.urgent && !item.checked ? 'border-rust/50' : 'border-ink/10'
+        } ${highlight ? 'remote-flash' : ''}`}>
           {/* check circle */}
           <button
             onClick={onToggle}
@@ -137,6 +139,9 @@ function ItemRow({ item, lang, listId, highlight, onToggle, onPatch, onRemove, o
             className="flex-1 min-w-0 text-start"
           >
             <span className={`block break-words text-[15px] ${item.checked ? 'item-done' : ''}`}>
+              {item.urgent && !item.checked && (
+                <AlertTriangle size={13} strokeWidth={2.5} className="inline-block text-rust me-1.5 -mt-0.5" />
+              )}
               {item.name}
             </span>
             {item.note && (

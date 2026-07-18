@@ -1,12 +1,14 @@
-import { Check, Tag, X } from 'lucide-react';
+import { AlertTriangle, Check, Tag, X } from 'lucide-react';
 import { useState } from 'react';
 import { isRTL, t } from '../i18n.js';
 import { categorize, categoryLabel, categoryOptions } from '../catalog.js';
+import { ensureNotifyPermission, subscribeUrgentAlerts } from '../push.js';
 
-// Item sheet, opened by tapping the item's name: a free-text note plus the
-// store-section picker. "Automatic" follows the name-based guess; anything
-// else is a synced per-item override. The note saves on close or pick.
-function ItemModal({ lang, item, onClose, onPatch }) {
+// Item sheet, opened by tapping the item's name: an urgent toggle, a
+// free-text note, and the store-section picker. "Automatic" follows the
+// name-based guess; anything else is a synced per-item override. The note
+// saves on close or pick.
+function ItemModal({ lang, listId, item, onClose, onPatch }) {
   const autoKey = categorize(item.name);
   const current = item.cat || null;
   const [note, setNote] = useState(item.note || '');
@@ -25,6 +27,18 @@ function ItemModal({ lang, item, onClose, onPatch }) {
   const pick = (key) => {
     onPatch({ cat: key, ...notePatch() });
     onClose();
+  };
+
+  // Marking urgent syncs the flag (the server notifies everyone else) and is
+  // also the natural user gesture to opt this device into urgent alerts.
+  const toggleUrgent = () => {
+    const next = !item.urgent;
+    onPatch({ urgent: next });
+    if (next) {
+      ensureNotifyPermission().then((granted) => {
+        if (granted) subscribeUrgentAlerts(listId, lang);
+      });
+    }
   };
 
   const Row = ({ selected, onClick, children }) => (
@@ -54,6 +68,19 @@ function ItemModal({ lang, item, onClose, onPatch }) {
           <button onClick={close} className="p-1 opacity-60 shrink-0" aria-label={t('close', lang)}>
             <X size={18} strokeWidth={2.5} />
           </button>
+        </div>
+
+        <div className="px-4 pt-3">
+          <button
+            onClick={toggleUrgent}
+            className={`w-full flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold ${
+              item.urgent ? 'bg-rust text-cream border-rust' : 'border-rust/40 text-rust'
+            }`}
+          >
+            <AlertTriangle size={15} strokeWidth={2.5} />
+            {t(item.urgent ? 'urgent_unmark' : 'urgent_mark', lang)}
+          </button>
+          <p className="text-[11px] opacity-55 mt-1.5">{t('urgent_explain', lang)}</p>
         </div>
 
         <div className="px-4 pt-3 pb-1">

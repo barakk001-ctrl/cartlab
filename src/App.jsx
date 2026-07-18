@@ -4,7 +4,7 @@ import { isRTL, t } from './i18n.js';
 import { loadLang, saveLang } from './storage.js';
 import { useSyncedLists } from './hooks/useSyncedLists.js';
 import { useWakeLock } from './hooks/useWakeLock.js';
-import { scheduleReminder, reminderIdFor } from './push.js';
+import { scheduleReminder, reminderIdFor, subscribeUrgentAlerts } from './push.js';
 import { buildReminderBody, buildReminderTitle } from './summary.js';
 import ListsView from './views/ListsView.jsx';
 import ListView from './views/ListView.jsx';
@@ -89,6 +89,21 @@ export default function App() {
       }
     }, 1500);
     return () => clearTimeout(handle);
+  }, [lists, lang]);
+
+  // Keep this device registered for urgent-item alerts on every list it has.
+  // A no-op (returns false) until notification permission is granted, so it
+  // keeps retrying on list changes and starts sticking once permission lands.
+  const urgentSubsRef = useRef(new Set());
+  useEffect(() => {
+    for (const list of lists) {
+      const key = `${list.id}|${lang}`;
+      if (urgentSubsRef.current.has(key)) continue;
+      urgentSubsRef.current.add(key);
+      subscribeUrgentAlerts(list.id, lang).then((ok) => {
+        if (!ok) urgentSubsRef.current.delete(key);
+      });
+    }
   }, [lists, lang]);
 
   const active = lists.find((l) => l.id === activeId);

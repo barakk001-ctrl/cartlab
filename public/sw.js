@@ -33,7 +33,9 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title || 'CartLab', {
       body: data.body || '',
-      tag: 'cartlab-reminder',
+      // Urgent-item pushes carry their own tag so several urgent items can
+      // stack instead of replacing one another (and the reminder).
+      tag: data.tag || 'cartlab-reminder',
       renotify: true,
       icon: '/icon-192.png',
       badge: '/icon-192.png',

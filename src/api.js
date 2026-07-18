@@ -4,6 +4,8 @@
 // drop it and resync). The sync engine relies on that distinction.
 // ------------------------------------------------------------
 
+import { getDeviceId } from './sync.js';
+
 class ApiError extends Error {
   constructor(status) {
     super(`HTTP ${status}`);
@@ -25,7 +27,7 @@ async function call(method, url, body) {
 // photoRev) is server-owned and changes only through the photo endpoints.
 const stripItem = (i) => ({
   id: i.id, name: i.name, qty: i.qty, checked: !!i.checked, createdAt: i.createdAt,
-  cat: i.cat || null, unit: i.unit || null, note: i.note || null,
+  cat: i.cat || null, unit: i.unit || null, note: i.note || null, urgent: !!i.urgent,
 });
 
 const stripList = (l) => ({
@@ -42,7 +44,10 @@ const api = {
   putList: (list) => call('PUT', `/api/lists/${list.id}`, stripList(list)),
   patchList: (id, patch) => call('PATCH', `/api/lists/${id}`, patch),
   deleteList: (id) => call('DELETE', `/api/lists/${id}`),
-  putItem: (listId, item) => call('PUT', `/api/lists/${listId}/items/${item.id}`, stripItem(item)),
+  // ?device= lets the server skip the sender when fanning out urgent alerts.
+  putItem: (listId, item) => call('PUT', `/api/lists/${listId}/items/${item.id}?device=${getDeviceId()}`, stripItem(item)),
+  subscribeUrgent: (listId, subscription, lang) =>
+    call('POST', `/api/lists/${listId}/subscribe`, { deviceId: getDeviceId(), subscription, lang }),
   deleteItem: (listId, itemId) => call('DELETE', `/api/lists/${listId}/items/${itemId}`),
   bulkDeleteItems: (listId, ids) => call('POST', `/api/lists/${listId}/items/bulk-delete`, { ids }),
   uploadPhoto: async (listId, itemId, blob) => {

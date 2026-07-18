@@ -9,6 +9,7 @@
 // ------------------------------------------------------------
 
 import { getDeviceId } from './sync.js';
+import { api } from './api.js';
 
 // Reminder ids are per-device: on a shared list, every device that has seen
 // the reminder schedules its own push, so both partners' phones light up.
@@ -74,6 +75,18 @@ async function scheduleReminder(id, at, title, body, url) {
   } catch { return false; }
 }
 
+// Register this device for a list's urgent-item alerts. No-op until the user
+// has granted notification permission (from the reminder flow or from marking
+// an item urgent). Safe to call repeatedly — the server upserts per device.
+async function subscribeUrgentAlerts(listId, lang) {
+  try {
+    const sub = await getPushSubscription();
+    if (!sub) return false;
+    await api.subscribeUrgent(listId, sub.toJSON(), lang);
+    return true;
+  } catch { return false; }
+}
+
 function cancelReminder(id) {
   try {
     fetch('/api/push/cancel', {
@@ -85,4 +98,4 @@ function cancelReminder(id) {
   } catch {}
 }
 
-export { IS_IOS, isStandalone, ensureNotifyPermission, scheduleReminder, cancelReminder, reminderIdFor };
+export { IS_IOS, isStandalone, ensureNotifyPermission, scheduleReminder, cancelReminder, reminderIdFor, subscribeUrgentAlerts };

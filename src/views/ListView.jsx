@@ -50,9 +50,15 @@ function ListView({
   const toBuy = items.filter((i) => !i.checked);
   const inCart = items.filter((i) => i.checked);
 
+  // Urgent items jump the queue: they render in their own section above the
+  // store-section groups, so they're the first thing anyone opening the list
+  // (say, from an urgent notification) sees.
+  const urgentItems = toBuy.filter((i) => i.urgent);
+  const regular = toBuy.filter((i) => !i.urgent);
+
   // "To buy" grouped by store section; if nothing is recognized, skip the
   // lone "Other" header and render flat.
-  const groups = useMemo(() => groupItems(toBuy, lang), [toBuy, lang]);
+  const groups = useMemo(() => groupItems(regular, lang), [items, lang]);
   const showGroupHeaders = !(groups.length === 1 && groups[0].key === 'other');
 
   const hasDupes = useMemo(() => {
@@ -276,6 +282,16 @@ function ListView({
               </button>
             )}
           </div>
+          {urgentItems.length > 0 && (
+            <div className="mb-3">
+              <h3 className="text-xs font-bold text-rust text-center mb-1.5">
+                🚨 {t('urgent', lang)}
+              </h3>
+              <div className="space-y-2">
+                {urgentItems.map((item) => <ItemRow key={item.id} {...rowProps(item)} />)}
+              </div>
+            </div>
+          )}
           {groups.map((group) => (
             <div key={group.key} className="mb-3 last:mb-0">
               {showGroupHeaders && (
@@ -335,6 +351,7 @@ function ListView({
       {detailItem && (
         <ItemModal
           lang={lang}
+          listId={list.id}
           item={items.find((i) => i.id === detailItem.id) || detailItem}
           onClose={() => setDetailItem(null)}
           onPatch={(patch) => onPatchItem(detailItem.id, patch)}

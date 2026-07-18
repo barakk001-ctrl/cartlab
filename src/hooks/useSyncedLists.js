@@ -27,7 +27,7 @@ const normalizeReminder = (at) => (at && at > Date.now() ? at : null);
 // The synced item fields, as a putItem op body (photo state is server-owned).
 const sharedItemBody = (i) => ({
   id: i.id, name: i.name, qty: i.qty, checked: i.checked, createdAt: i.createdAt,
-  cat: i.cat || null, unit: i.unit || null, note: i.note || null,
+  cat: i.cat || null, unit: i.unit || null, note: i.note || null, urgent: !!i.urgent,
 });
 
 export function useSyncedLists() {
@@ -132,7 +132,8 @@ export function useSyncedLists() {
           const prev = prevById.get(si.id);
           return !prev || prev.name !== si.name || prev.qty !== si.qty
             || prev.checked !== si.checked || (prev.cat || null) !== (si.cat || null)
-            || (prev.unit || null) !== (si.unit || null) || (prev.note || null) !== (si.note || null);
+            || (prev.unit || null) !== (si.unit || null) || (prev.note || null) !== (si.note || null)
+            || !!prev.urgent !== !!si.urgent;
         })
         .map((i) => i.id));
     }
@@ -344,7 +345,7 @@ export function useSyncedLists() {
     const nextLists = listsRef.current.map((l) =>
       l.id === listId ? { ...l, items: l.items.map((i) => (i.id === itemId ? next : i)) } : l);
     // Photo-only patches are device-local — update state without a server op.
-    const shared = ['name', 'qty', 'checked', 'cat', 'unit', 'note'].some((k) => k in patch);
+    const shared = ['name', 'qty', 'checked', 'cat', 'unit', 'note', 'urgent'].some((k) => k in patch);
     commit(nextLists, shared
       ? { kind: 'putItem', listId, body: sharedItemBody(next) }
       : null);

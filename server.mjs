@@ -179,6 +179,7 @@ function parseItem(raw) {
     cat: typeof raw.cat === 'string' && /^[a-z]{2,16}$/.test(raw.cat) ? raw.cat : null,
     unit: UNITS.has(raw.unit) ? raw.unit : null,
     note: typeof raw.note === 'string' && raw.note.trim() ? raw.note.trim().slice(0, 300) : null,
+    urgent: !!raw.urgent,
   };
 }
 
@@ -286,16 +287,68 @@ app.delete('/api/lists/:id', guard((req, res) => {
   res.json({ ok: true });
 }));
 
+// ---- urgent alerts ----
+// A device registers its push subscription per list; when an item on that
+// list turns urgent, every registered device (except the one that marked it)
+// gets an immediate push. `lang` picks the notification language per device.
+
+const DEVICE_ID_RE = /^[a-z0-9]{4,40}$/i;
+
+app.post('/api/lists/:id/subscribe', guard((req, res) => {
+  if (!pushEnabled) return res.status(503).json({ ok: false, error: 'push disabled' });
+  const id = requireListId(req, res);
+  if (!id) return;
+  const { deviceId, subscription, lang } = req.body || {};
+  if (typeof deviceId !== 'string' || !DEVICE_ID_RE.test(deviceId)) {
+    return res.status(400).json({ ok: false, error: 'bad device' });
+  }
+  if (!subscription || typeof subscription.endpoint !== 'string' ||
+      !subscription.endpoint.startsWith('https://') || subscription.endpoint.length > 1000) {
+    return res.status(400).json({ ok: false, error: 'bad subscription' });
+  }
+  const ok = store.setSub(id, deviceId, lang === 'he' ? 'he' : 'en', subscription);
+  if (ok === null) return res.status(404).json({ ok: false, error: 'not found' });
+  res.json({ ok: true });
+}));
+
+// Fire-and-forget fan-out. A 404/410 from the push service means the
+// subscription is dead — drop it so the list doesn't accumulate corpses.
+async function notifyUrgent(listId, item, senderDevice) {
+  const list = store.getList(listId);
+  if (!list) return;
+  for (const sub of store.getSubs(listId)) {
+    if (sub.deviceId === senderDevice) continue;
+    const he = sub.lang === 'he';
+    const title = he ? `🚨 דחוף: ${item.name}` : `🚨 Urgent: ${item.name}`;
+    let body = he ? `נוסף לרשימה "${list.name}"` : `Added to "${list.name}"`;
+    if (item.note) body += ` — ${item.note}`;
+    try {
+      await webpush.sendNotification(
+        sub.subscription,
+        JSON.stringify({ title, body, url: `/#list=${listId}`, tag: `cartlab-urgent-${item.id}` }),
+        { TTL: 6 * 3600, urgency: 'high' },
+      );
+    } catch (e) {
+      if (e.statusCode === 404 || e.statusCode === 410) store.removeSub(listId, sub.deviceId);
+      else console.warn('urgent push failed:', e.statusCode || e.message);
+    }
+  }
+}
+
 // Per-item upsert — add and edit both land here (last write wins per item).
 app.put('/api/lists/:id/items/:itemId', guard((req, res) => {
   const id = requireListId(req, res);
   if (!id) return;
   const item = parseItem({ ...(req.body || {}), id: req.params.itemId });
   if (!item) return res.status(400).json({ ok: false, error: 'bad item' });
-  const version = store.upsertItem(id, item);
-  if (version === null) return res.status(404).json({ ok: false, error: 'not found' });
-  broadcast(id, { version });
-  res.json({ ok: true, version });
+  const result = store.upsertItem(id, item);
+  if (result === null) return res.status(404).json({ ok: false, error: 'not found' });
+  broadcast(id, { version: result.version });
+  if (result.becameUrgent && pushEnabled) {
+    const sender = typeof req.query.device === 'string' ? req.query.device : null;
+    notifyUrgent(id, item, sender).catch((e) => console.warn('urgent notify failed:', e.message));
+  }
+  res.json({ ok: true, version: result.version });
 }));
 
 app.delete('/api/lists/:id/items/:itemId', guard((req, res) => {

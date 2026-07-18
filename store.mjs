@@ -47,6 +47,13 @@ export function openStore(dataDir) {
       PRIMARY KEY (list_id, id)
     );
     CREATE INDEX IF NOT EXISTS idx_items_list ON items(list_id, created_at);
+    CREATE TABLE IF NOT EXISTS subs (
+      list_id TEXT NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+      device_id TEXT NOT NULL,
+      lang TEXT,
+      subscription TEXT NOT NULL,
+      PRIMARY KEY (list_id, device_id)
+    );
   `);
   // Photo columns arrived after the first release — migrate old DBs in place.
   try { db.exec('ALTER TABLE items ADD COLUMN has_photo INTEGER NOT NULL DEFAULT 0'); } catch {}
@@ -56,16 +63,18 @@ export function openStore(dataDir) {
   // Quantity unit (kg/g/l/pack, null = plain count) and a free-text note.
   try { db.exec('ALTER TABLE items ADD COLUMN unit TEXT'); } catch {}
   try { db.exec('ALTER TABLE items ADD COLUMN note TEXT'); } catch {}
+  // Urgent flag — flipping it on notifies every subscribed device (see subs).
+  try { db.exec('ALTER TABLE items ADD COLUMN urgent INTEGER NOT NULL DEFAULT 0'); } catch {}
 
   const q = {
     getMeta: db.prepare('SELECT id, name, created_at, reminder_at, version FROM lists WHERE id = ?'),
-    getItems: db.prepare('SELECT id, name, qty, checked, created_at, has_photo, photo_rev, cat, unit, note FROM items WHERE list_id = ? ORDER BY created_at, id'),
+    getItems: db.prepare('SELECT id, name, qty, checked, created_at, has_photo, photo_rev, cat, unit, note, urgent FROM items WHERE list_id = ? ORDER BY created_at, id'),
+    itemUrgent: db.prepare('SELECT urgent FROM items WHERE list_id = ? AND id = ?'),
     getPhotoMeta: db.prepare('SELECT has_photo, photo_rev FROM items WHERE list_id = ? AND id = ?'),
     setPhotoMeta: db.prepare('UPDATE items SET has_photo = ?, photo_rev = photo_rev + 1 WHERE list_id = ? AND id = ?'),
     photoIds: db.prepare('SELECT id FROM items WHERE list_id = ? AND has_photo = 1'),
     countLists: db.prepare('SELECT COUNT(*) AS n FROM lists'),
     countItems: db.prepare('SELECT COUNT(*) AS n FROM items WHERE list_id = ?'),
-    hasItem: db.prepare('SELECT 1 AS x FROM items WHERE list_id = ? AND id = ?'),
     insertList: db.prepare('INSERT INTO lists (id, name, created_at, reminder_at, version) VALUES (?, ?, ?, ?, 1)'),
     updateMeta: db.prepare('UPDATE lists SET name = ?, reminder_at = ?, version = version + 1 WHERE id = ?'),
     bump: db.prepare('UPDATE lists SET version = version + 1 WHERE id = ?'),
@@ -73,12 +82,20 @@ export function openStore(dataDir) {
     deleteList: db.prepare('DELETE FROM lists WHERE id = ?'),
     clearItems: db.prepare('DELETE FROM items WHERE list_id = ?'),
     upsertItem: db.prepare(`
-      INSERT INTO items (list_id, id, name, qty, checked, created_at, cat, unit, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO items (list_id, id, name, qty, checked, created_at, cat, unit, note, urgent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(list_id, id) DO UPDATE SET
         name = excluded.name, qty = excluded.qty, checked = excluded.checked,
-        cat = excluded.cat, unit = excluded.unit, note = excluded.note
+        cat = excluded.cat, unit = excluded.unit, note = excluded.note, urgent = excluded.urgent
     `),
     deleteItem: db.prepare('DELETE FROM items WHERE list_id = ? AND id = ?'),
+    setSub: db.prepare(`
+      INSERT INTO subs (list_id, device_id, lang, subscription) VALUES (?, ?, ?, ?)
+      ON CONFLICT(list_id, device_id) DO UPDATE SET lang = excluded.lang, subscription = excluded.subscription
+    `),
+    getSubs: db.prepare('SELECT device_id, lang, subscription FROM subs WHERE list_id = ?'),
+    countSubs: db.prepare('SELECT COUNT(*) AS n FROM subs WHERE list_id = ?'),
+    hasSub: db.prepare('SELECT 1 AS x FROM subs WHERE list_id = ? AND device_id = ?'),
+    deleteSub: db.prepare('DELETE FROM subs WHERE list_id = ? AND device_id = ?'),
   };
 
   function tx(fn) {
@@ -105,6 +122,7 @@ export function openStore(dataDir) {
       items: q.getItems.all(id).map((i) => ({
         id: i.id, name: i.name, qty: i.qty, checked: !!i.checked, createdAt: i.created_at,
         hasPhoto: !!i.has_photo, photoRev: i.photo_rev, cat: i.cat, unit: i.unit, note: i.note,
+        urgent: !!i.urgent,
       })),
     };
   }
@@ -127,7 +145,7 @@ export function openStore(dataDir) {
       q.clearItems.run(id);
       const base = Date.now();
       kept.forEach((it, i) =>
-        q.upsertItem.run(id, it.id, it.name, it.qty, it.checked ? 1 : 0, it.createdAt ?? base + i, it.cat ?? null, it.unit ?? null, it.note ?? null));
+        q.upsertItem.run(id, it.id, it.name, it.qty, it.checked ? 1 : 0, it.createdAt ?? base + i, it.cat ?? null, it.unit ?? null, it.note ?? null, it.urgent ? 1 : 0));
       for (const pid of oldPhotos) {
         if (keptIds.has(pid)) q.setPhotoMeta.run(1, id, pid);
       }
@@ -161,15 +179,22 @@ export function openStore(dataDir) {
     return true;
   }
 
+  // Returns { version, becameUrgent } — becameUrgent is true when this write
+  // flipped the item to urgent (new urgent item, or existing item marked),
+  // which is the server's cue to notify the list's subscribed devices.
   function upsertItem(listId, item) {
     return tx(() => {
       if (!q.getMeta.get(listId)) return null;
-      if (!q.hasItem.get(listId, item.id) && q.countItems.get(listId).n >= MAX_ITEMS) {
+      const prev = q.itemUrgent.get(listId, item.id);
+      if (!prev && q.countItems.get(listId).n >= MAX_ITEMS) {
         throw err(400, 'too many items');
       }
-      q.upsertItem.run(listId, item.id, item.name, item.qty, item.checked ? 1 : 0, item.createdAt ?? Date.now(), item.cat ?? null, item.unit ?? null, item.note ?? null);
+      q.upsertItem.run(listId, item.id, item.name, item.qty, item.checked ? 1 : 0, item.createdAt ?? Date.now(), item.cat ?? null, item.unit ?? null, item.note ?? null, item.urgent ? 1 : 0);
       q.bump.run(listId);
-      return q.version.get(listId).version;
+      return {
+        version: q.version.get(listId).version,
+        becameUrgent: !!item.urgent && !item.checked && !prev?.urgent,
+      };
     });
   }
 
@@ -183,6 +208,33 @@ export function openStore(dataDir) {
     if (version !== null) ids.forEach(unlinkPhoto);
     return version;
   }
+
+  // ---- urgent-alert subscriptions ----
+  // One push subscription per (list, device): every device that has granted
+  // notification permission registers here, and an item turning urgent fans
+  // out to all of them (minus the sender).
+
+  const MAX_SUBS = 50;
+
+  function setSub(listId, deviceId, lang, subscription) {
+    return tx(() => {
+      if (!q.getMeta.get(listId)) return null;
+      if (!q.hasSub.get(listId, deviceId) && q.countSubs.get(listId).n >= MAX_SUBS) {
+        throw err(429, 'too many subscriptions');
+      }
+      q.setSub.run(listId, deviceId, lang ?? null, JSON.stringify(subscription));
+      return true;
+    });
+  }
+
+  function getSubs(listId) {
+    return q.getSubs.all(listId).map((r) => {
+      try { return { deviceId: r.device_id, lang: r.lang, subscription: JSON.parse(r.subscription) }; }
+      catch { return null; }
+    }).filter(Boolean);
+  }
+
+  const removeSub = (listId, deviceId) => { q.deleteSub.run(listId, deviceId); };
 
   // ---- photos ----
 
@@ -218,5 +270,5 @@ export function openStore(dataDir) {
     return fs.existsSync(file) ? file : null;
   }
 
-  return { getList, upsertList, patchList, deleteList, upsertItem, deleteItems, setPhoto, removePhoto, getPhotoFile };
+  return { getList, upsertList, patchList, deleteList, upsertItem, deleteItems, setPhoto, removePhoto, getPhotoFile, setSub, getSubs, removeSub };
 }
