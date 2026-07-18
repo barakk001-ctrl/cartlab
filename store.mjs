@@ -52,6 +52,8 @@ export function openStore(dataDir) {
       device_id TEXT NOT NULL,
       lang TEXT,
       subscription TEXT NOT NULL,
+      tz TEXT,
+      last_daily TEXT,
       PRIMARY KEY (list_id, device_id)
     );
   `);
@@ -65,6 +67,9 @@ export function openStore(dataDir) {
   try { db.exec('ALTER TABLE items ADD COLUMN note TEXT'); } catch {}
   // Urgent flag — flipping it on notifies every subscribed device (see subs).
   try { db.exec('ALTER TABLE items ADD COLUMN urgent INTEGER NOT NULL DEFAULT 0'); } catch {}
+  // Device timezone + last daily-digest date, for the 7 AM urgent summary.
+  try { db.exec('ALTER TABLE subs ADD COLUMN tz TEXT'); } catch {}
+  try { db.exec('ALTER TABLE subs ADD COLUMN last_daily TEXT'); } catch {}
 
   const q = {
     getMeta: db.prepare('SELECT id, name, created_at, reminder_at, version FROM lists WHERE id = ?'),
@@ -89,10 +94,13 @@ export function openStore(dataDir) {
     `),
     deleteItem: db.prepare('DELETE FROM items WHERE list_id = ? AND id = ?'),
     setSub: db.prepare(`
-      INSERT INTO subs (list_id, device_id, lang, subscription) VALUES (?, ?, ?, ?)
-      ON CONFLICT(list_id, device_id) DO UPDATE SET lang = excluded.lang, subscription = excluded.subscription
+      INSERT INTO subs (list_id, device_id, lang, subscription, tz, last_daily) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(list_id, device_id) DO UPDATE SET
+        lang = excluded.lang, subscription = excluded.subscription, tz = excluded.tz
     `),
-    getSubs: db.prepare('SELECT device_id, lang, subscription FROM subs WHERE list_id = ?'),
+    getSubs: db.prepare('SELECT device_id, lang, subscription, tz, last_daily FROM subs WHERE list_id = ?'),
+    setSubDaily: db.prepare('UPDATE subs SET last_daily = ? WHERE list_id = ? AND device_id = ?'),
+    urgentListIds: db.prepare('SELECT DISTINCT list_id FROM items WHERE urgent = 1 AND checked = 0'),
     countSubs: db.prepare('SELECT COUNT(*) AS n FROM subs WHERE list_id = ?'),
     hasSub: db.prepare('SELECT 1 AS x FROM subs WHERE list_id = ? AND device_id = ?'),
     deleteSub: db.prepare('DELETE FROM subs WHERE list_id = ? AND device_id = ?'),
@@ -216,25 +224,34 @@ export function openStore(dataDir) {
 
   const MAX_SUBS = 50;
 
-  function setSub(listId, deviceId, lang, subscription) {
+  // `today` (the device's local date at subscribe time) seeds last_daily on
+  // first insert so the 7 AM digest starts tomorrow, not the moment someone
+  // subscribes mid-morning. Re-subscribing keeps the existing last_daily.
+  function setSub(listId, deviceId, lang, subscription, tz, today) {
     return tx(() => {
       if (!q.getMeta.get(listId)) return null;
       if (!q.hasSub.get(listId, deviceId) && q.countSubs.get(listId).n >= MAX_SUBS) {
         throw err(429, 'too many subscriptions');
       }
-      q.setSub.run(listId, deviceId, lang ?? null, JSON.stringify(subscription));
+      q.setSub.run(listId, deviceId, lang ?? null, JSON.stringify(subscription), tz ?? null, today ?? null);
       return true;
     });
   }
 
   function getSubs(listId) {
     return q.getSubs.all(listId).map((r) => {
-      try { return { deviceId: r.device_id, lang: r.lang, subscription: JSON.parse(r.subscription) }; }
-      catch { return null; }
+      try {
+        return {
+          deviceId: r.device_id, lang: r.lang, subscription: JSON.parse(r.subscription),
+          tz: r.tz, lastDaily: r.last_daily,
+        };
+      } catch { return null; }
     }).filter(Boolean);
   }
 
   const removeSub = (listId, deviceId) => { q.deleteSub.run(listId, deviceId); };
+  const setSubDaily = (listId, deviceId, date) => { q.setSubDaily.run(date, listId, deviceId); };
+  const urgentListIds = () => q.urgentListIds.all().map((r) => r.list_id);
 
   // ---- photos ----
 
@@ -270,5 +287,9 @@ export function openStore(dataDir) {
     return fs.existsSync(file) ? file : null;
   }
 
-  return { getList, upsertList, patchList, deleteList, upsertItem, deleteItems, setPhoto, removePhoto, getPhotoFile, setSub, getSubs, removeSub };
+  return {
+    getList, upsertList, patchList, deleteList, upsertItem, deleteItems,
+    setPhoto, removePhoto, getPhotoFile,
+    setSub, getSubs, removeSub, setSubDaily, urgentListIds,
+  };
 }

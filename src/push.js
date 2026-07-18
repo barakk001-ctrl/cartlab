@@ -82,7 +82,9 @@ async function subscribeUrgentAlerts(listId, lang) {
   try {
     const sub = await getPushSubscription();
     if (!sub) return false;
-    await api.subscribeUrgent(listId, sub.toJSON(), lang);
+    let tz = null;
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch {}
+    await api.subscribeUrgent(listId, sub.toJSON(), lang, tz);
     return true;
   } catch { return false; }
 }

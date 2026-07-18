@@ -295,11 +295,45 @@ app.delete('/api/lists/:id', guard((req, res) => {
 
 const DEVICE_ID_RE = /^[a-z0-9]{4,40}$/i;
 
+// "Milk 1.5 kg · Eggs ×2 · Bread" — shared by the arrival alert, and the
+// 7 AM urgent digest.
+function itemsText(items, he) {
+  const UNIT_TXT = { kg: he ? 'ק"ג' : 'kg', g: he ? 'גרם' : 'g', l: he ? 'ליטר' : 'L', pack: he ? 'מארז' : 'pack' };
+  return items.map((i) => {
+    if (i.unit) {
+      const qty = i.qty % 1 === 0 ? i.qty : Math.round(i.qty * 10) / 10;
+      return `${i.name} ${qty} ${UNIT_TXT[i.unit] || i.unit}`;
+    }
+    return i.qty > 1 ? `${i.name} ×${i.qty}` : i.name;
+  }).join(' · ');
+}
+
+// Local wall-clock date + hour for an IANA timezone (falls back to UTC when
+// the stored tz is missing or invalid). DST-proof because Intl resolves the
+// zone's rules at each call.
+function localParts(tz) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz || 'UTC',
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date());
+    const get = (type) => parts.find((p) => p.type === type)?.value;
+    return { date: `${get('year')}-${get('month')}-${get('day')}`, hour: Number(get('hour')) };
+  } catch {
+    return localParts('UTC');
+  }
+}
+
+const isValidTz = (tz) => {
+  if (typeof tz !== 'string' || !tz || tz.length > 64) return false;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; }
+};
+
 app.post('/api/lists/:id/subscribe', guard((req, res) => {
   if (!pushEnabled) return res.status(503).json({ ok: false, error: 'push disabled' });
   const id = requireListId(req, res);
   if (!id) return;
-  const { deviceId, subscription, lang } = req.body || {};
+  const { deviceId, subscription, lang, tz } = req.body || {};
   if (typeof deviceId !== 'string' || !DEVICE_ID_RE.test(deviceId)) {
     return res.status(400).json({ ok: false, error: 'bad device' });
   }
@@ -307,7 +341,8 @@ app.post('/api/lists/:id/subscribe', guard((req, res) => {
       !subscription.endpoint.startsWith('https://') || subscription.endpoint.length > 1000) {
     return res.status(400).json({ ok: false, error: 'bad subscription' });
   }
-  const ok = store.setSub(id, deviceId, lang === 'he' ? 'he' : 'en', subscription);
+  const cleanTz = isValidTz(tz) ? tz : null;
+  const ok = store.setSub(id, deviceId, lang === 'he' ? 'he' : 'en', subscription, cleanTz, localParts(cleanTz).date);
   if (ok === null) return res.status(404).json({ ok: false, error: 'not found' });
   res.json({ ok: true });
 }));
@@ -333,6 +368,45 @@ async function notifyUrgent(listId, item) {
       else console.warn('urgent push failed:', e.statusCode || e.message);
     }
   }
+}
+
+// Morning digest: every day at 7:00 (device-local time), each subscribed
+// device gets one notification per list that still has unbought urgent items.
+// A minute-scan checks each subscription's local clock; last_daily (a local
+// date, marked before sending so a failure can't retry-spam) makes it
+// once-per-day, and the window runs until noon so a server restart during
+// the morning still delivers.
+const DAILY_FROM_HOUR = 7;
+const DAILY_UNTIL_HOUR = 12;
+
+async function dailyUrgentScan() {
+  for (const listId of store.urgentListIds()) {
+    let list = null;
+    for (const sub of store.getSubs(listId)) {
+      const { date, hour } = localParts(sub.tz);
+      if (hour < DAILY_FROM_HOUR || hour >= DAILY_UNTIL_HOUR || sub.lastDaily === date) continue;
+      list ??= store.getList(listId);
+      const urgent = list?.items.filter((i) => i.urgent && !i.checked) || [];
+      if (!urgent.length) break;
+      store.setSubDaily(listId, sub.deviceId, date);
+      const he = sub.lang === 'he';
+      const title = he ? `🚨 עדיין דחוף — ${list.name}` : `🚨 Still urgent — ${list.name}`;
+      try {
+        await webpush.sendNotification(
+          sub.subscription,
+          JSON.stringify({ title, body: itemsText(urgent, he), url: `/#list=${listId}`, tag: `cartlab-daily-${listId}` }),
+          { TTL: 4 * 3600 },
+        );
+      } catch (e) {
+        if (e.statusCode === 404 || e.statusCode === 410) store.removeSub(listId, sub.deviceId);
+        else console.warn('daily urgent push failed:', e.statusCode || e.message);
+      }
+    }
+  }
+}
+
+if (pushEnabled) {
+  setInterval(() => dailyUrgentScan().catch((e) => console.warn('daily scan failed:', e.message)), 60000).unref();
 }
 
 // Per-item upsert — add and edit both land here (last write wins per item).
@@ -411,15 +485,7 @@ app.get('/api/lists/:id/alert', guard((req, res) => {
   const left = list.items.filter((i) => !i.checked);
   const min = Math.max(1, Math.min(500, Number(req.query.min) || 1));
   if (left.length < min) return res.send('');
-  const he = req.query.lang === 'he';
-  const UNIT_TXT = { kg: he ? 'ק"ג' : 'kg', g: he ? 'גרם' : 'g', l: he ? 'ליטר' : 'L', pack: he ? 'מארז' : 'pack' };
-  const items = left.map((i) => {
-    if (i.unit) {
-      const qty = i.qty % 1 === 0 ? i.qty : Math.round(i.qty * 10) / 10;
-      return `${i.name} ${qty} ${UNIT_TXT[i.unit] || i.unit}`;
-    }
-    return i.qty > 1 ? `${i.name} ×${i.qty}` : i.name;
-  }).join(' · ');
+  const items = itemsText(left, req.query.lang === 'he');
   let text = `🛒 ${list.name} — ${items}`;
   if (text.length > 500) text = text.slice(0, 497) + '…';
   res.send(text);

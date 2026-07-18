@@ -45,8 +45,9 @@ const api = {
   patchList: (id, patch) => call('PATCH', `/api/lists/${id}`, patch),
   deleteList: (id) => call('DELETE', `/api/lists/${id}`),
   putItem: (listId, item) => call('PUT', `/api/lists/${listId}/items/${item.id}`, stripItem(item)),
-  subscribeUrgent: (listId, subscription, lang) =>
-    call('POST', `/api/lists/${listId}/subscribe`, { deviceId: getDeviceId(), subscription, lang }),
+  // tz lets the server time the 7 AM urgent digest to this device's morning.
+  subscribeUrgent: (listId, subscription, lang, tz) =>
+    call('POST', `/api/lists/${listId}/subscribe`, { deviceId: getDeviceId(), subscription, lang, tz }),
   deleteItem: (listId, itemId) => call('DELETE', `/api/lists/${listId}/items/${itemId}`),
   bulkDeleteItems: (listId, ids) => call('POST', `/api/lists/${listId}/items/bulk-delete`, { ids }),
   uploadPhoto: async (listId, itemId, blob) => {
