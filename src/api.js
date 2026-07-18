@@ -44,8 +44,7 @@ const api = {
   putList: (list) => call('PUT', `/api/lists/${list.id}`, stripList(list)),
   patchList: (id, patch) => call('PATCH', `/api/lists/${id}`, patch),
   deleteList: (id) => call('DELETE', `/api/lists/${id}`),
-  // ?device= lets the server skip the sender when fanning out urgent alerts.
-  putItem: (listId, item) => call('PUT', `/api/lists/${listId}/items/${item.id}?device=${getDeviceId()}`, stripItem(item)),
+  putItem: (listId, item) => call('PUT', `/api/lists/${listId}/items/${item.id}`, stripItem(item)),
   subscribeUrgent: (listId, subscription, lang) =>
     call('POST', `/api/lists/${listId}/subscribe`, { deviceId: getDeviceId(), subscription, lang }),
   deleteItem: (listId, itemId) => call('DELETE', `/api/lists/${listId}/items/${itemId}`),

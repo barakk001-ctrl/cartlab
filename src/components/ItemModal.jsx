@@ -29,8 +29,9 @@ function ItemModal({ lang, listId, item, onClose, onPatch }) {
     onClose();
   };
 
-  // Marking urgent syncs the flag (the server notifies everyone else) and is
-  // also the natural user gesture to opt this device into urgent alerts.
+  // Marking urgent syncs the flag (the server notifies every subscribed
+  // device, sender included) and is also the natural user gesture to opt
+  // this device into urgent alerts.
   const toggleUrgent = () => {
     const next = !item.urgent;
     onPatch({ urgent: next });

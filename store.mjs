@@ -212,7 +212,7 @@ export function openStore(dataDir) {
   // ---- urgent-alert subscriptions ----
   // One push subscription per (list, device): every device that has granted
   // notification permission registers here, and an item turning urgent fans
-  // out to all of them (minus the sender).
+  // out to all of them.
 
   const MAX_SUBS = 50;
 

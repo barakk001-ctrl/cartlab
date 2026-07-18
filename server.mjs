@@ -289,8 +289,9 @@ app.delete('/api/lists/:id', guard((req, res) => {
 
 // ---- urgent alerts ----
 // A device registers its push subscription per list; when an item on that
-// list turns urgent, every registered device (except the one that marked it)
-// gets an immediate push. `lang` picks the notification language per device.
+// list turns urgent, every registered device — including the one that marked
+// it, as confirmation the alert went out — gets an immediate push. `lang`
+// picks the notification language per device.
 
 const DEVICE_ID_RE = /^[a-z0-9]{4,40}$/i;
 
@@ -313,11 +314,10 @@ app.post('/api/lists/:id/subscribe', guard((req, res) => {
 
 // Fire-and-forget fan-out. A 404/410 from the push service means the
 // subscription is dead — drop it so the list doesn't accumulate corpses.
-async function notifyUrgent(listId, item, senderDevice) {
+async function notifyUrgent(listId, item) {
   const list = store.getList(listId);
   if (!list) return;
   for (const sub of store.getSubs(listId)) {
-    if (sub.deviceId === senderDevice) continue;
     const he = sub.lang === 'he';
     const title = he ? `🚨 דחוף: ${item.name}` : `🚨 Urgent: ${item.name}`;
     let body = he ? `נוסף לרשימה "${list.name}"` : `Added to "${list.name}"`;
@@ -345,8 +345,7 @@ app.put('/api/lists/:id/items/:itemId', guard((req, res) => {
   if (result === null) return res.status(404).json({ ok: false, error: 'not found' });
   broadcast(id, { version: result.version });
   if (result.becameUrgent && pushEnabled) {
-    const sender = typeof req.query.device === 'string' ? req.query.device : null;
-    notifyUrgent(id, item, sender).catch((e) => console.warn('urgent notify failed:', e.message));
+    notifyUrgent(id, item).catch((e) => console.warn('urgent notify failed:', e.message));
   }
   res.json({ ok: true, version: result.version });
 }));
