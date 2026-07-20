@@ -92,21 +92,32 @@ function PricesModal({ lang, listId, onClose }) {
                     )}
                   </div>
                 </div>
-                {/* per-shop comparison — stores sorted cheapest-first by the server */}
+                {/* per-shop comparison — stores sorted cheapest-first by the
+                    server; each chip also shows the change at that shop since
+                    its previous receipt */}
                 {stores.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
-                    {stores.map((s, idx) => (
-                      <span
-                        key={s.store}
-                        className={`text-[11px] rounded-full px-2 py-0.5 border ${
-                          idx === 0 && stores.length > 1
-                            ? 'border-leaf/50 text-leaf font-bold'
-                            : 'border-ink/15 opacity-70'
-                        }`}
-                      >
-                        {s.store} <span dir="ltr">{fmtPrice(s.price, p.currency)}</span>
-                      </span>
-                    ))}
+                    {stores.map((s, idx) => {
+                      const storePct = s.prevPrice ? ((s.price - s.prevPrice) / s.prevPrice) * 100 : null;
+                      const storeUp = storePct !== null && storePct > 0;
+                      return (
+                        <span
+                          key={s.store}
+                          className={`text-[11px] rounded-full px-2 py-0.5 border ${
+                            idx === 0 && stores.length > 1
+                              ? 'border-leaf/50 text-leaf font-bold'
+                              : 'border-ink/15 opacity-70'
+                          }`}
+                        >
+                          {s.store} <span dir="ltr">{fmtPrice(s.price, p.currency)}</span>
+                          {storePct !== null && (
+                            <span className={`font-bold ${storeUp ? 'text-rust' : 'text-leaf'}`} dir="ltr">
+                              {' '}{storeUp ? '▲' : '▼'}{Math.abs(storePct).toFixed(Math.abs(storePct) >= 10 ? 0 : 1)}%
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })}
                   </div>
                 )}
               </div>

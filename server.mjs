@@ -584,10 +584,23 @@ app.get('/api/lists/:id/prices', guard((req, res) => {
     for (let i = history.length - 2; i >= 0; i--) {
       if (history[i].price !== latest.price) { prev = history[i]; break; }
     }
-    // Latest price per named store — the cross-shop comparison.
-    const byStore = new Map();
+    // Cross-shop comparison: latest price per named store, plus the change
+    // vs. the previous *different* price at that same store — so each chip
+    // can say "cheapest here" and "went up here since last receipt".
+    const storeHistories = new Map();
     for (const h of history) {
-      if (h.store) byStore.set(h.store, { store: h.store, price: h.price, at: h.at });
+      if (!h.store) continue;
+      if (!storeHistories.has(h.store)) storeHistories.set(h.store, []);
+      storeHistories.get(h.store).push(h);
+    }
+    const byStore = new Map();
+    for (const [name, rows] of storeHistories) {
+      const last = rows[rows.length - 1];
+      let storePrev = null;
+      for (let i = rows.length - 2; i >= 0; i--) {
+        if (rows[i].price !== last.price) { storePrev = rows[i]; break; }
+      }
+      byStore.set(name, { store: name, price: last.price, at: last.at, prevPrice: storePrev?.price ?? null });
     }
     products.push({
       name: latest.name,
