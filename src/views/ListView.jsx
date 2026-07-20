@@ -1,4 +1,4 @@
-import { Bell, ChevronLeft, ChevronRight, Copy, ListTodo, MapPin, Plus, Share2, Trash2, X } from 'lucide-react';
+import { Bell, ChevronLeft, ChevronRight, Copy, ListTodo, MapPin, Plus, Receipt, Share2, Trash2, TrendingUp, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatWhen, isRTL, t } from '../i18n.js';
 import { groupItems, suggest } from '../catalog.js';
@@ -12,6 +12,9 @@ import PhotoModal from '../components/PhotoModal.jsx';
 import ExportModal from '../components/ExportModal.jsx';
 import ItemModal from '../components/ItemModal.jsx';
 import LocationModal from '../components/LocationModal.jsx';
+import PricesModal from '../components/PricesModal.jsx';
+import { api } from '../api.js';
+import { compressImage } from '../db.js';
 
 function ListView({
   lang, list, knownNames, remoteTouched, onBack, onAddItem, onPatchItem, onRemoveItem,
@@ -21,6 +24,39 @@ function ListView({
   const [reminderOpen, setReminderOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [locOpen, setLocOpen] = useState(false);
+  const [pricesOpen, setPricesOpen] = useState(false);
+
+  // Receipt scanning: photo → server → Claude reads out the prices. The
+  // upload happens right here (not through the offline op queue) because a
+  // scan is interactive — you're standing there waiting for the result.
+  const receiptRef = useRef(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanMsg, setScanMsg] = useState(null);
+  const scanMsgTimer = useRef(null);
+  const showScanMsg = (msg) => {
+    setScanMsg(msg);
+    if (scanMsgTimer.current) clearTimeout(scanMsgTimer.current);
+    scanMsgTimer.current = setTimeout(() => setScanMsg(null), 6000);
+  };
+  useEffect(() => () => scanMsgTimer.current && clearTimeout(scanMsgTimer.current), []);
+
+  const scanReceipt = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || scanning) return;
+    setScanning(true);
+    try {
+      // Higher resolution than item photos — the model needs to read the text.
+      const blob = await compressImage(file, 2200, 0.85);
+      const r = await api.uploadReceipt(list.id, blob);
+      showScanMsg(r.saved > 0 ? t('receipt_saved', lang, { n: r.saved }) : t('receipt_failed', lang));
+      if (r.saved > 0) setPricesOpen(true);
+    } catch (err) {
+      showScanMsg(err?.status === 503 ? t('receipt_unavailable', lang) : t('receipt_failed', lang));
+    } finally {
+      setScanning(false);
+    }
+  };
   const [photoItem, setPhotoItem] = useState(null); // item shown in the photo modal
   const [detailItem, setDetailItem] = useState(null); // item shown in the note/category sheet
   const [shareCopied, setShareCopied] = useState(false);
@@ -203,7 +239,27 @@ function ListView({
             <MapPin size={15} strokeWidth={2.5} />
             {t('loc_btn', lang)}
           </button>
+          <button
+            onClick={() => receiptRef.current?.click()}
+            disabled={scanning}
+            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold border border-ink/25 text-ink/70 ${scanning ? 'opacity-60' : ''}`}
+          >
+            <Receipt size={15} strokeWidth={2.5} className={scanning ? 'animate-pulse' : ''} />
+            {scanning ? t('receipt_scanning', lang) : t('receipt_btn', lang)}
+          </button>
+          <input ref={receiptRef} type="file" accept="image/*" onChange={scanReceipt} hidden />
+          <button
+            onClick={() => setPricesOpen(true)}
+            className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold border border-ink/25 text-ink/70"
+          >
+            <TrendingUp size={15} strokeWidth={2.5} />
+            {t('prices_btn', lang)}
+          </button>
         </div>
+
+        {scanMsg && (
+          <p className="mt-2 text-xs bg-leaf/10 text-ink/80 rounded-xl px-3 py-2">{scanMsg}</p>
+        )}
       </header>
 
       {appHint && (
@@ -370,6 +426,10 @@ function ListView({
 
       {locOpen && (
         <LocationModal lang={lang} list={list} onClose={() => setLocOpen(false)} />
+      )}
+
+      {pricesOpen && (
+        <PricesModal lang={lang} listId={list.id} onClose={() => setPricesOpen(false)} />
       )}
 
       {celebrate && (

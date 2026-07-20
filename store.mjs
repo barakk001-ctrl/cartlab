@@ -47,6 +47,15 @@ export function openStore(dataDir) {
       PRIMARY KEY (list_id, id)
     );
     CREATE INDEX IF NOT EXISTS idx_items_list ON items(list_id, created_at);
+    CREATE TABLE IF NOT EXISTS prices (
+      list_id TEXT NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+      name_key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      price REAL NOT NULL,
+      currency TEXT,
+      at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_prices_list ON prices(list_id, name_key, at);
     CREATE TABLE IF NOT EXISTS subs (
       list_id TEXT NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
       device_id TEXT NOT NULL,
@@ -116,6 +125,14 @@ export function openStore(dataDir) {
       WHERE urgent = 1 AND checked = 0 AND urgent_at IS NOT NULL AND urgent_at > ? AND urgent_bumped_at <= ?
     `),
     markBumped: db.prepare('UPDATE items SET urgent_bumped_at = ? WHERE list_id = ? AND id = ?'),
+    addPrice: db.prepare('INSERT INTO prices (list_id, name_key, name, price, currency, at) VALUES (?, ?, ?, ?, ?, ?)'),
+    getPrices: db.prepare('SELECT name_key, name, price, currency, at FROM prices WHERE list_id = ? ORDER BY name_key, at'),
+    countPrices: db.prepare('SELECT COUNT(*) AS n FROM prices WHERE list_id = ?'),
+    prunePrices: db.prepare(`
+      DELETE FROM prices WHERE list_id = ? AND rowid IN (
+        SELECT rowid FROM prices WHERE list_id = ? ORDER BY at ASC LIMIT ?
+      )
+    `),
     countSubs: db.prepare('SELECT COUNT(*) AS n FROM subs WHERE list_id = ?'),
     hasSub: db.prepare('SELECT 1 AS x FROM subs WHERE list_id = ? AND device_id = ?'),
     deleteSub: db.prepare('DELETE FROM subs WHERE list_id = ? AND device_id = ?'),
@@ -277,6 +294,35 @@ export function openStore(dataDir) {
     q.bumpDue.all(oldestAt, bumpedBefore).map((r) => ({ listId: r.list_id, id: r.id, name: r.name, note: r.note }));
   const markBumped = (listId, itemId, at) => { q.markBumped.run(at, listId, itemId); };
 
+  // ---- price history (from scanned receipts) ----
+  // One row per (item name, receipt). Keyed by normalized name rather than
+  // item id, so history survives items being bought, cleared, and re-added.
+
+  const MAX_PRICE_ROWS = 5000;
+  const nameKey = (name) => name.trim().toLowerCase();
+
+  function addPrices(listId, entries, at) {
+    return tx(() => {
+      if (!q.getMeta.get(listId)) return null;
+      for (const e of entries) {
+        q.addPrice.run(listId, nameKey(e.name), e.name.trim(), e.price, e.currency ?? null, at);
+      }
+      const excess = q.countPrices.get(listId).n - MAX_PRICE_ROWS;
+      if (excess > 0) q.prunePrices.run(listId, listId, excess);
+      return entries.length;
+    });
+  }
+
+  // Full history per product, oldest → newest, grouped by normalized name.
+  function getPriceHistory(listId) {
+    const byKey = new Map();
+    for (const r of q.getPrices.all(listId)) {
+      if (!byKey.has(r.name_key)) byKey.set(r.name_key, []);
+      byKey.get(r.name_key).push({ name: r.name, price: r.price, currency: r.currency, at: r.at });
+    }
+    return byKey;
+  }
+
   // ---- photos ----
 
   function setPhoto(listId, itemId, buffer) {
@@ -315,5 +361,6 @@ export function openStore(dataDir) {
     getList, upsertList, patchList, deleteList, upsertItem, deleteItems,
     setPhoto, removePhoto, getPhotoFile,
     setSub, getSubs, removeSub, setSubDaily, urgentListIds, bumpDue, markBumped,
+    addPrices, getPriceHistory,
   };
 }

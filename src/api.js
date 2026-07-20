@@ -61,6 +61,16 @@ const api = {
     return res.json();
   },
   deletePhoto: (listId, itemId) => call('DELETE', `/api/lists/${listId}/items/${itemId}/photo`),
+  uploadReceipt: async (listId, blob) => {
+    const res = await fetch(`/api/lists/${listId}/receipt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/jpeg' },
+      body: blob,
+    });
+    if (!res.ok) throw new ApiError(res.status);
+    return res.json();
+  },
+  getPrices: (listId) => call('GET', `/api/lists/${listId}/prices`),
   fetchPhoto: async (listId, itemId, rev) => {
     const res = await fetch(photoUrl(listId, itemId, rev));
     if (!res.ok) throw new ApiError(res.status);

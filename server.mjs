@@ -6,6 +6,7 @@
 // restart re-arms them.
 import express from 'express';
 import webpush from 'web-push';
+import Anthropic from '@anthropic-ai/sdk';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -189,9 +190,9 @@ function parseItem(raw) {
   };
 }
 
-const guard = (fn) => (req, res) => {
+const guard = (fn) => async (req, res) => {
   try {
-    fn(req, res);
+    await fn(req, res);
   } catch (e) {
     res.status(e.status || 500).json({ ok: false, error: e.status ? e.message : 'server error' });
   }
@@ -499,6 +500,138 @@ app.get('/api/lists/:id/items/:itemId/photo', guard((req, res) => {
   // The client includes ?rev= in the URL, so the content is immutable per URL.
   res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
   res.type('image/jpeg').sendFile(file);
+}));
+
+// ---- receipt scanning & price history ----
+// The client uploads a photo of the till receipt after shopping; Claude reads
+// it (receipts here are often Hebrew, crumpled, and thermal-printed — why
+// this is a vision-model job, not classic OCR) and returns each purchased
+// item with its unit price, matched to this list's item names when they're
+// the same product. Prices accumulate per product; the client renders the
+// increase/decrease dashboard from GET /prices.
+
+const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
+
+const RECEIPT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['store', 'currency', 'items'],
+  properties: {
+    store: { type: 'string', description: 'Store name from the receipt header, or "" if unreadable' },
+    currency: { type: 'string', description: 'Currency symbol, e.g. "₪" or "$"; "" if unknown' },
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'unitPrice', 'matched'],
+        properties: {
+          name: { type: 'string', description: 'Matched shopping-list item name verbatim, or a short cleaned-up product name from the receipt' },
+          unitPrice: { type: 'number', description: 'Final paid price for ONE unit (line total divided by quantity, after discounts). For weighed items, the price per kg.' },
+          matched: { type: 'boolean', description: 'true when this line was matched to one of the provided shopping-list item names' },
+        },
+      },
+    },
+  },
+};
+
+const rawReceipt = express.raw({ type: ['image/*', 'application/octet-stream'], limit: '3mb' });
+
+app.post('/api/lists/:id/receipt', rawReceipt, guard(async (req, res) => {
+  const id = requireListId(req, res);
+  if (!id) return;
+  if (!anthropic) return res.status(503).json({ ok: false, error: 'receipt scanning not configured' });
+  if (!Buffer.isBuffer(req.body) || req.body.length < 1000) return res.status(400).json({ ok: false, error: 'bad image' });
+  const list = store.getList(id);
+  if (!list) return res.status(404).json({ ok: false, error: 'not found' });
+
+  const listNames = list.items.map((i) => i.name);
+  let response;
+  try {
+    response = await anthropic.messages.create({
+      model: 'claude-opus-4-8',
+      max_tokens: 16000,
+      thinking: { type: 'adaptive' },
+      output_config: { format: { type: 'json_schema', schema: RECEIPT_SCHEMA } },
+      system:
+        'You extract itemized purchases from supermarket receipt photos (often Hebrew, sometimes English). ' +
+        'Return every product line with the final paid unit price (after line discounts; line total ÷ quantity; per kg for weighed items). ' +
+        'Skip non-products: totals, subtotals, change, payment lines, bottle deposits, bags, loyalty-points lines, and standalone discount lines already applied above. ' +
+        'You are given the names on the shopper\'s list: when a receipt line is the same product as a list item (even across Hebrew/English or brand vs. generic wording), set name to that list item name verbatim and matched to true. ' +
+        'Otherwise use a short cleaned-up product name from the receipt and matched false. If the photo is not a receipt or is unreadable, return an empty items array.',
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: 'image/jpeg', data: req.body.toString('base64') },
+          },
+          { type: 'text', text: `Shopping list item names:\n${listNames.join('\n') || '(empty list)'}` },
+        ],
+      }],
+    });
+  } catch (e) {
+    if (e instanceof Anthropic.RateLimitError) return res.status(503).json({ ok: false, error: 'busy, try again shortly' });
+    if (e instanceof Anthropic.APIError) {
+      console.warn('receipt scan API error:', e.status, e.message);
+      return res.status(502).json({ ok: false, error: 'scan failed' });
+    }
+    throw e;
+  }
+
+  if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') {
+    return res.status(422).json({ ok: false, error: 'could not read receipt' });
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(response.content.find((b) => b.type === 'text')?.text ?? '');
+  } catch {
+    return res.status(422).json({ ok: false, error: 'could not read receipt' });
+  }
+
+  const currency = typeof parsed.currency === 'string' && parsed.currency.trim() ? parsed.currency.trim().slice(0, 4) : null;
+  const entries = (Array.isArray(parsed.items) ? parsed.items : [])
+    .filter((i) => typeof i.name === 'string' && i.name.trim() && i.name.length <= 200 &&
+                   Number.isFinite(i.unitPrice) && i.unitPrice > 0 && i.unitPrice < 100000)
+    .map((i) => ({ name: i.name, price: Math.round(i.unitPrice * 100) / 100, currency, matched: !!i.matched }));
+
+  if (entries.length) store.addPrices(id, entries, Date.now());
+  res.json({
+    ok: true,
+    saved: entries.length,
+    matched: entries.filter((e) => e.matched).length,
+    store: typeof parsed.store === 'string' ? parsed.store.slice(0, 100) : '',
+    items: entries.map(({ name, price }) => ({ name, price })),
+    currency,
+  });
+}));
+
+// Price dashboard data: per product, the latest price and the previous
+// *different* price (so a stable price across many receipts still shows its
+// last real change).
+app.get('/api/lists/:id/prices', guard((req, res) => {
+  const id = requireListId(req, res);
+  if (!id) return;
+  if (!store.getList(id)) return res.status(404).json({ ok: false, error: 'not found' });
+  const products = [];
+  for (const history of store.getPriceHistory(id).values()) {
+    const latest = history[history.length - 1];
+    let prev = null;
+    for (let i = history.length - 2; i >= 0; i--) {
+      if (history[i].price !== latest.price) { prev = history[i]; break; }
+    }
+    products.push({
+      name: latest.name,
+      price: latest.price,
+      currency: latest.currency,
+      at: latest.at,
+      prevPrice: prev?.price ?? null,
+      prevAt: prev?.at ?? null,
+      count: history.length,
+    });
+  }
+  products.sort((a, b) => b.at - a.at || a.name.localeCompare(b.name));
+  res.json({ ok: true, products });
 }));
 
 // Location alert for an iOS Shortcuts "When I arrive" automation: plain-text
