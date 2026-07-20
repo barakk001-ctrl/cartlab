@@ -67,28 +67,48 @@ function PricesModal({ lang, listId, onClose }) {
           {sorted.map((p) => {
             const pct = changePct(p);
             const up = pct !== null && pct > 0;
+            const stores = p.stores || [];
             return (
-              <div key={p.name} className="px-4 py-2.5 border-b border-ink/5 last:border-b-0 flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="text-[15px] truncate">{p.name}</div>
-                  <div className="text-[11px] opacity-50">
-                    {p.prevPrice
-                      ? `${t('price_was', lang, { price: fmtPrice(p.prevPrice, p.currency) })} · ${fmtDate(p.at)}`
-                      : fmtDate(p.at)}
+              <div key={p.name} className="px-4 py-2.5 border-b border-ink/5 last:border-b-0">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[15px] truncate">{p.name}</div>
+                    <div className="text-[11px] opacity-50">
+                      {p.prevPrice
+                        ? `${t('price_was', lang, { price: fmtPrice(p.prevPrice, p.currency) })} · ${fmtDate(p.at)}`
+                        : fmtDate(p.at)}
+                    </div>
+                  </div>
+                  <div className="text-end shrink-0">
+                    <div className="f-mono text-[15px] font-semibold" dir="ltr">{fmtPrice(p.price, p.currency)}</div>
+                    {pct !== null && (
+                      <div
+                        className={`flex items-center justify-end gap-0.5 text-[11px] font-bold ${up ? 'text-rust' : 'text-leaf'}`}
+                        dir="ltr"
+                      >
+                        {up ? <TrendingUp size={11} strokeWidth={3} /> : <TrendingDown size={11} strokeWidth={3} />}
+                        {`${up ? '+' : ''}${pct.toFixed(Math.abs(pct) >= 10 ? 0 : 1)}%`}
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div className="text-end shrink-0">
-                  <div className="f-mono text-[15px] font-semibold" dir="ltr">{fmtPrice(p.price, p.currency)}</div>
-                  {pct !== null && (
-                    <div
-                      className={`flex items-center justify-end gap-0.5 text-[11px] font-bold ${up ? 'text-rust' : 'text-leaf'}`}
-                      dir="ltr"
-                    >
-                      {up ? <TrendingUp size={11} strokeWidth={3} /> : <TrendingDown size={11} strokeWidth={3} />}
-                      {`${up ? '+' : ''}${pct.toFixed(Math.abs(pct) >= 10 ? 0 : 1)}%`}
-                    </div>
-                  )}
-                </div>
+                {/* per-shop comparison — stores sorted cheapest-first by the server */}
+                {stores.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {stores.map((s, idx) => (
+                      <span
+                        key={s.store}
+                        className={`text-[11px] rounded-full px-2 py-0.5 border ${
+                          idx === 0 && stores.length > 1
+                            ? 'border-leaf/50 text-leaf font-bold'
+                            : 'border-ink/15 opacity-70'
+                        }`}
+                      >
+                        {s.store} <span dir="ltr">{fmtPrice(s.price, p.currency)}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}

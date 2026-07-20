@@ -13,8 +13,7 @@ import ExportModal from '../components/ExportModal.jsx';
 import ItemModal from '../components/ItemModal.jsx';
 import LocationModal from '../components/LocationModal.jsx';
 import PricesModal from '../components/PricesModal.jsx';
-import { api } from '../api.js';
-import { compressImage } from '../db.js';
+import ReceiptModal from '../components/ReceiptModal.jsx';
 
 function ListView({
   lang, list, knownNames, remoteTouched, onBack, onAddItem, onPatchItem, onRemoveItem,
@@ -25,12 +24,9 @@ function ListView({
   const [exportOpen, setExportOpen] = useState(false);
   const [locOpen, setLocOpen] = useState(false);
   const [pricesOpen, setPricesOpen] = useState(false);
+  const [receiptOpen, setReceiptOpen] = useState(false);
 
-  // Receipt scanning: photo → server → Claude reads out the prices. The
-  // upload happens right here (not through the offline op queue) because a
-  // scan is interactive — you're standing there waiting for the result.
-  const receiptRef = useRef(null);
-  const [scanning, setScanning] = useState(false);
+  // Transient confirmation after saving receipt prices.
   const [scanMsg, setScanMsg] = useState(null);
   const scanMsgTimer = useRef(null);
   const showScanMsg = (msg) => {
@@ -39,24 +35,6 @@ function ListView({
     scanMsgTimer.current = setTimeout(() => setScanMsg(null), 6000);
   };
   useEffect(() => () => scanMsgTimer.current && clearTimeout(scanMsgTimer.current), []);
-
-  const scanReceipt = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file || scanning) return;
-    setScanning(true);
-    try {
-      // Higher resolution than item photos — the model needs to read the text.
-      const blob = await compressImage(file, 2200, 0.85);
-      const r = await api.uploadReceipt(list.id, blob);
-      showScanMsg(r.saved > 0 ? t('receipt_saved', lang, { n: r.saved }) : t('receipt_failed', lang));
-      if (r.saved > 0) setPricesOpen(true);
-    } catch (err) {
-      showScanMsg(err?.status === 503 ? t('receipt_unavailable', lang) : t('receipt_failed', lang));
-    } finally {
-      setScanning(false);
-    }
-  };
   const [photoItem, setPhotoItem] = useState(null); // item shown in the photo modal
   const [detailItem, setDetailItem] = useState(null); // item shown in the note/category sheet
   const [shareCopied, setShareCopied] = useState(false);
@@ -240,14 +218,12 @@ function ListView({
             {t('loc_btn', lang)}
           </button>
           <button
-            onClick={() => receiptRef.current?.click()}
-            disabled={scanning}
-            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold border border-ink/25 text-ink/70 ${scanning ? 'opacity-60' : ''}`}
+            onClick={() => setReceiptOpen(true)}
+            className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold border border-ink/25 text-ink/70"
           >
-            <Receipt size={15} strokeWidth={2.5} className={scanning ? 'animate-pulse' : ''} />
-            {scanning ? t('receipt_scanning', lang) : t('receipt_btn', lang)}
+            <Receipt size={15} strokeWidth={2.5} />
+            {t('receipt_btn', lang)}
           </button>
-          <input ref={receiptRef} type="file" accept="image/*" onChange={scanReceipt} hidden />
           <button
             onClick={() => setPricesOpen(true)}
             className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold border border-ink/25 text-ink/70"
@@ -430,6 +406,18 @@ function ListView({
 
       {pricesOpen && (
         <PricesModal lang={lang} listId={list.id} onClose={() => setPricesOpen(false)} />
+      )}
+
+      {receiptOpen && (
+        <ReceiptModal
+          lang={lang}
+          listId={list.id}
+          onClose={() => setReceiptOpen(false)}
+          onSaved={(n) => {
+            showScanMsg(t('receipt_saved', lang, { n }));
+            setPricesOpen(true);
+          }}
+        />
       )}
 
       {celebrate && (

@@ -144,8 +144,12 @@ function ItemRow({ item, lang, listId, highlight, onToggle, onPatch, onRemove, o
               )}
               {item.name}
             </span>
-            {item.note && (
-              <span className="block text-xs opacity-55 truncate mt-0.5">{item.note}</span>
+            {(item.note || item.price != null) && (
+              <span className="block text-xs opacity-55 truncate mt-0.5">
+                {item.price != null && <span dir="ltr">₪{item.price}</span>}
+                {item.note && item.price != null && ' · '}
+                {item.note}
+              </span>
             )}
           </button>
 

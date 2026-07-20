@@ -1,31 +1,44 @@
-import { AlertTriangle, Check, Tag, X } from 'lucide-react';
+import { AlertTriangle, Check, ScanBarcode, Tag, X } from 'lucide-react';
 import { useState } from 'react';
 import { isRTL, t } from '../i18n.js';
 import { categorize, categoryLabel, categoryOptions } from '../catalog.js';
 import { ensureNotifyPermission, subscribeUrgentAlerts } from '../push.js';
+import BarcodeScanner from './BarcodeScanner.jsx';
 
 // Item sheet, opened by tapping the item's name: an urgent toggle, a
-// free-text note, and the store-section picker. "Automatic" follows the
-// name-based guess; anything else is a synced per-item override. The note
-// saves on close or pick.
+// free-text note, shelf price + barcode (feeding the price tracker), and the
+// store-section picker. "Automatic" follows the name-based guess; anything
+// else is a synced per-item override. Text fields save on close or pick.
 function ItemModal({ lang, listId, item, onClose, onPatch }) {
   const autoKey = categorize(item.name);
   const current = item.cat || null;
   const [note, setNote] = useState(item.note || '');
+  const [price, setPrice] = useState(item.price != null ? String(item.price) : '');
+  const [barcode, setBarcode] = useState(item.barcode || '');
+  const [scanOpen, setScanOpen] = useState(false);
 
-  const notePatch = () => {
-    const trimmed = note.trim().slice(0, 300);
-    return trimmed !== (item.note || '') ? { note: trimmed || null } : {};
+  const fieldsPatch = () => {
+    const patch = {};
+    const trimmedNote = note.trim().slice(0, 300);
+    if (trimmedNote !== (item.note || '')) patch.note = trimmedNote || null;
+    const parsedPrice = Number(price);
+    const cleanPrice = Number.isFinite(parsedPrice) && parsedPrice > 0
+      ? Math.round(parsedPrice * 100) / 100
+      : null;
+    if (cleanPrice !== (item.price ?? null)) patch.price = cleanPrice;
+    const cleanBarcode = /^\d{6,14}$/.test(barcode.trim()) ? barcode.trim() : null;
+    if (cleanBarcode !== (item.barcode || null)) patch.barcode = cleanBarcode;
+    return patch;
   };
 
   const close = () => {
-    const patch = notePatch();
+    const patch = fieldsPatch();
     if (Object.keys(patch).length) onPatch(patch);
     onClose();
   };
 
   const pick = (key) => {
-    onPatch({ cat: key, ...notePatch() });
+    onPatch({ cat: key, ...fieldsPatch() });
     onClose();
   };
 
@@ -100,6 +113,49 @@ function ItemModal({ lang, listId, item, onClose, onPatch }) {
           </label>
         </div>
 
+        {/* price + barcode — feeds the per-product price history */}
+        <div className="px-4 pt-2 pb-1 flex gap-2">
+          <label className="block w-24 shrink-0">
+            <span className="f-mono text-[10px] uppercase tracking-[0.2em] opacity-55">
+              {t('price_label', lang)}
+            </span>
+            <input
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && close()}
+              type="text"
+              inputMode="decimal"
+              placeholder="₪"
+              dir="ltr"
+              className="mt-1 w-full bg-surface/70 border border-ink/15 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-leaf"
+            />
+          </label>
+          <label className="block flex-1 min-w-0">
+            <span className="f-mono text-[10px] uppercase tracking-[0.2em] opacity-55">
+              {t('barcode_label', lang)}
+            </span>
+            <div className="mt-1 flex gap-1.5">
+              <input
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value.replace(/\D/g, '').slice(0, 14))}
+                onKeyDown={(e) => e.key === 'Enter' && close()}
+                type="text"
+                inputMode="numeric"
+                placeholder={t('barcode_ph', lang)}
+                dir="ltr"
+                className="w-full min-w-0 bg-surface/70 border border-ink/15 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-leaf"
+              />
+              <button
+                onClick={() => setScanOpen(true)}
+                className="shrink-0 w-11 rounded-xl border border-ink/15 flex items-center justify-center text-leaf"
+                aria-label={t('barcode_scan', lang)}
+              >
+                <ScanBarcode size={18} strokeWidth={2} />
+              </button>
+            </div>
+          </label>
+        </div>
+
         <div className="px-4 pt-3 pb-1 flex items-center gap-1.5 f-mono text-[10px] uppercase tracking-[0.2em] opacity-55">
           <Tag size={11} strokeWidth={2.5} />
           {t('category', lang)}
@@ -115,6 +171,14 @@ function ItemModal({ lang, listId, item, onClose, onPatch }) {
           ))}
         </div>
       </div>
+
+      {scanOpen && (
+        <BarcodeScanner
+          lang={lang}
+          onDetect={(code) => { setBarcode(code); setScanOpen(false); }}
+          onClose={() => setScanOpen(false)}
+        />
+      )}
     </div>
   );
 }

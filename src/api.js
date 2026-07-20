@@ -28,7 +28,7 @@ async function call(method, url, body) {
 const stripItem = (i) => ({
   id: i.id, name: i.name, qty: i.qty, checked: !!i.checked, createdAt: i.createdAt,
   cat: i.cat || null, unit: i.unit || null, note: i.note || null, urgent: !!i.urgent,
-  checkedAt: i.checkedAt ?? null,
+  checkedAt: i.checkedAt ?? null, price: i.price ?? null, barcode: i.barcode || null,
 });
 
 const stripList = (l) => ({
@@ -61,16 +61,8 @@ const api = {
     return res.json();
   },
   deletePhoto: (listId, itemId) => call('DELETE', `/api/lists/${listId}/items/${itemId}/photo`),
-  uploadReceipt: async (listId, blob) => {
-    const res = await fetch(`/api/lists/${listId}/receipt`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'image/jpeg' },
-      body: blob,
-    });
-    if (!res.ok) throw new ApiError(res.status);
-    return res.json();
-  },
   getPrices: (listId) => call('GET', `/api/lists/${listId}/prices`),
+  pasteReceipt: (listId, text, store) => call('POST', `/api/lists/${listId}/receipt-text`, { text, store }),
   fetchPhoto: async (listId, itemId, rev) => {
     const res = await fetch(photoUrl(listId, itemId, rev));
     if (!res.ok) throw new ApiError(res.status);

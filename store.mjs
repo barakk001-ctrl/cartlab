@@ -86,11 +86,17 @@ export function openStore(dataDir) {
   // its notification was last (re)sent. Not exposed to clients.
   try { db.exec('ALTER TABLE items ADD COLUMN urgent_at INTEGER'); } catch {}
   try { db.exec('ALTER TABLE items ADD COLUMN urgent_bumped_at INTEGER'); } catch {}
+  // Shelf price + product barcode; price changes append to the prices table.
+  try { db.exec('ALTER TABLE items ADD COLUMN price REAL'); } catch {}
+  try { db.exec('ALTER TABLE items ADD COLUMN barcode TEXT'); } catch {}
+  // Which shop a price observation came from (receipt header) — enables the
+  // per-store comparison in the dashboard. Null = entered by hand in-app.
+  try { db.exec('ALTER TABLE prices ADD COLUMN store TEXT'); } catch {}
 
   const q = {
     getMeta: db.prepare('SELECT id, name, created_at, reminder_at, version FROM lists WHERE id = ?'),
-    getItems: db.prepare('SELECT id, name, qty, checked, created_at, has_photo, photo_rev, cat, unit, note, urgent, checked_at FROM items WHERE list_id = ? ORDER BY created_at, id'),
-    itemUrgent: db.prepare('SELECT urgent FROM items WHERE list_id = ? AND id = ?'),
+    getItems: db.prepare('SELECT id, name, qty, checked, created_at, has_photo, photo_rev, cat, unit, note, urgent, checked_at, price, barcode FROM items WHERE list_id = ? ORDER BY created_at, id'),
+    itemPrev: db.prepare('SELECT urgent, price FROM items WHERE list_id = ? AND id = ?'),
     getPhotoMeta: db.prepare('SELECT has_photo, photo_rev FROM items WHERE list_id = ? AND id = ?'),
     setPhotoMeta: db.prepare('UPDATE items SET has_photo = ?, photo_rev = photo_rev + 1 WHERE list_id = ? AND id = ?'),
     photoIds: db.prepare('SELECT id FROM items WHERE list_id = ? AND has_photo = 1'),
@@ -103,11 +109,11 @@ export function openStore(dataDir) {
     deleteList: db.prepare('DELETE FROM lists WHERE id = ?'),
     clearItems: db.prepare('DELETE FROM items WHERE list_id = ?'),
     upsertItem: db.prepare(`
-      INSERT INTO items (list_id, id, name, qty, checked, created_at, cat, unit, note, urgent, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO items (list_id, id, name, qty, checked, created_at, cat, unit, note, urgent, checked_at, price, barcode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(list_id, id) DO UPDATE SET
         name = excluded.name, qty = excluded.qty, checked = excluded.checked,
         cat = excluded.cat, unit = excluded.unit, note = excluded.note, urgent = excluded.urgent,
-        checked_at = excluded.checked_at
+        checked_at = excluded.checked_at, price = excluded.price, barcode = excluded.barcode
     `),
     deleteItem: db.prepare('DELETE FROM items WHERE list_id = ? AND id = ?'),
     setSub: db.prepare(`
@@ -125,8 +131,9 @@ export function openStore(dataDir) {
       WHERE urgent = 1 AND checked = 0 AND urgent_at IS NOT NULL AND urgent_at > ? AND urgent_bumped_at <= ?
     `),
     markBumped: db.prepare('UPDATE items SET urgent_bumped_at = ? WHERE list_id = ? AND id = ?'),
-    addPrice: db.prepare('INSERT INTO prices (list_id, name_key, name, price, currency, at) VALUES (?, ?, ?, ?, ?, ?)'),
-    getPrices: db.prepare('SELECT name_key, name, price, currency, at FROM prices WHERE list_id = ? ORDER BY name_key, at'),
+    addPrice: db.prepare('INSERT INTO prices (list_id, name_key, name, price, currency, at, store) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+    setItemPrice: db.prepare('UPDATE items SET price = ? WHERE list_id = ? AND id = ?'),
+    getPrices: db.prepare('SELECT name_key, name, price, currency, at, store FROM prices WHERE list_id = ? ORDER BY name_key, at'),
     countPrices: db.prepare('SELECT COUNT(*) AS n FROM prices WHERE list_id = ?'),
     prunePrices: db.prepare(`
       DELETE FROM prices WHERE list_id = ? AND rowid IN (
@@ -162,7 +169,7 @@ export function openStore(dataDir) {
       items: q.getItems.all(id).map((i) => ({
         id: i.id, name: i.name, qty: i.qty, checked: !!i.checked, createdAt: i.created_at,
         hasPhoto: !!i.has_photo, photoRev: i.photo_rev, cat: i.cat, unit: i.unit, note: i.note,
-        urgent: !!i.urgent, checkedAt: i.checked_at,
+        urgent: !!i.urgent, checkedAt: i.checked_at, price: i.price, barcode: i.barcode,
       })),
     };
   }
@@ -185,7 +192,7 @@ export function openStore(dataDir) {
       q.clearItems.run(id);
       const base = Date.now();
       kept.forEach((it, i) =>
-        q.upsertItem.run(id, it.id, it.name, it.qty, it.checked ? 1 : 0, it.createdAt ?? base + i, it.cat ?? null, it.unit ?? null, it.note ?? null, it.urgent ? 1 : 0, it.checkedAt ?? null));
+        q.upsertItem.run(id, it.id, it.name, it.qty, it.checked ? 1 : 0, it.createdAt ?? base + i, it.cat ?? null, it.unit ?? null, it.note ?? null, it.urgent ? 1 : 0, it.checkedAt ?? null, it.price ?? null, it.barcode ?? null));
       for (const pid of oldPhotos) {
         if (keptIds.has(pid)) q.setPhotoMeta.run(1, id, pid);
       }
@@ -225,17 +232,21 @@ export function openStore(dataDir) {
   function upsertItem(listId, item) {
     return tx(() => {
       if (!q.getMeta.get(listId)) return null;
-      const prev = q.itemUrgent.get(listId, item.id);
+      const prev = q.itemPrev.get(listId, item.id);
       if (!prev && q.countItems.get(listId).n >= MAX_ITEMS) {
         throw err(400, 'too many items');
       }
-      q.upsertItem.run(listId, item.id, item.name, item.qty, item.checked ? 1 : 0, item.createdAt ?? Date.now(), item.cat ?? null, item.unit ?? null, item.note ?? null, item.urgent ? 1 : 0, item.checkedAt ?? null);
+      q.upsertItem.run(listId, item.id, item.name, item.qty, item.checked ? 1 : 0, item.createdAt ?? Date.now(), item.cat ?? null, item.unit ?? null, item.note ?? null, item.urgent ? 1 : 0, item.checkedAt ?? null, item.price ?? null, item.barcode ?? null);
       const becameUrgent = !!item.urgent && !item.checked && !prev?.urgent;
       // Anchor the re-bump window at the transition; the initial notification
       // goes out right after this write, so it counts as the first bump.
       const now = Date.now();
       if (becameUrgent) q.setUrgentAt.run(now, now, listId, item.id);
       else if (!item.urgent) q.clearUrgentAt.run(listId, item.id);
+      // A new or changed price is an observation for the price tracker.
+      if (item.price != null && item.price !== prev?.price) {
+        recordPrice(listId, item, now);
+      }
       q.bump.run(listId);
       return { version: q.version.get(listId).version, becameUrgent };
     });
@@ -294,22 +305,39 @@ export function openStore(dataDir) {
     q.bumpDue.all(oldestAt, bumpedBefore).map((r) => ({ listId: r.list_id, id: r.id, name: r.name, note: r.note }));
   const markBumped = (listId, itemId, at) => { q.markBumped.run(at, listId, itemId); };
 
-  // ---- price history (from scanned receipts) ----
-  // One row per (item name, receipt). Keyed by normalized name rather than
-  // item id, so history survives items being bought, cleared, and re-added.
+  // ---- price history ----
+  // One row per observed price. Keyed by barcode when the item has one (the
+  // exact product, robust to renames) or by normalized name otherwise — so
+  // history survives items being bought, cleared, and re-added next week.
 
   const MAX_PRICE_ROWS = 5000;
   const nameKey = (name) => name.trim().toLowerCase();
 
-  function addPrices(listId, entries, at) {
+  function recordPrice(listId, item, at) {
+    q.addPrice.run(listId, item.barcode || nameKey(item.name), item.name.trim(), item.price, '₪', at, null);
+    const excess = q.countPrices.get(listId).n - MAX_PRICE_ROWS;
+    if (excess > 0) q.prunePrices.run(listId, listId, excess);
+  }
+
+  // Bulk recording from a pasted receipt: one history row per product line.
+  // When a list item carries the same barcode, the row is stored under the
+  // item's name (the receipt's abbreviation is usually uglier) and the item's
+  // own price field is refreshed to what was just paid.
+  function recordReceiptPrices(listId, entries, at, storeName) {
     return tx(() => {
       if (!q.getMeta.get(listId)) return null;
+      const byBarcode = new Map(
+        q.getItems.all(listId).filter((i) => i.barcode).map((i) => [i.barcode, i]),
+      );
       for (const e of entries) {
-        q.addPrice.run(listId, nameKey(e.name), e.name.trim(), e.price, e.currency ?? null, at);
+        const item = byBarcode.get(e.barcode);
+        q.addPrice.run(listId, e.barcode, item ? item.name : e.name, e.price, '₪', at, storeName ?? null);
+        if (item && item.price !== e.price) q.setItemPrice.run(e.price, listId, item.id);
       }
       const excess = q.countPrices.get(listId).n - MAX_PRICE_ROWS;
       if (excess > 0) q.prunePrices.run(listId, listId, excess);
-      return entries.length;
+      q.bump.run(listId);
+      return { version: q.version.get(listId).version, saved: entries.length };
     });
   }
 
@@ -318,7 +346,7 @@ export function openStore(dataDir) {
     const byKey = new Map();
     for (const r of q.getPrices.all(listId)) {
       if (!byKey.has(r.name_key)) byKey.set(r.name_key, []);
-      byKey.get(r.name_key).push({ name: r.name, price: r.price, currency: r.currency, at: r.at });
+      byKey.get(r.name_key).push({ name: r.name, price: r.price, currency: r.currency, at: r.at, store: r.store });
     }
     return byKey;
   }
@@ -361,6 +389,6 @@ export function openStore(dataDir) {
     getList, upsertList, patchList, deleteList, upsertItem, deleteItems,
     setPhoto, removePhoto, getPhotoFile,
     setSub, getSubs, removeSub, setSubDaily, urgentListIds, bumpDue, markBumped,
-    addPrices, getPriceHistory,
+    getPriceHistory, recordReceiptPrices,
   };
 }
