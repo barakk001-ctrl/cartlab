@@ -30,19 +30,28 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch {}
-  event.waitUntil(
-    self.registration.showNotification(data.title || 'CartLab', {
+  // Urgent-item pushes carry their own per-item tag so several urgent items
+  // can coexist while re-sends of the SAME item replace each other. iOS
+  // ignores tag-based replacement for web push, so close the stale copy
+  // explicitly before showing the new one — otherwise 30-minute re-bumps
+  // stack up six deep on the lock screen.
+  const tag = data.tag || 'cartlab-reminder';
+  event.waitUntil((async () => {
+    try {
+      for (const n of await self.registration.getNotifications()) {
+        if (n.tag === tag) n.close();
+      }
+    } catch {}
+    await self.registration.showNotification(data.title || 'CartLab', {
       body: data.body || '',
-      // Urgent-item pushes carry their own tag so several urgent items can
-      // stack instead of replacing one another (and the reminder).
-      tag: data.tag || 'cartlab-reminder',
+      tag,
       renotify: true,
       icon: '/icon-192.png',
       badge: '/icon-192.png',
       vibrate: [200, 80, 200],
       data: { url: data.url || '/' },
-    })
-  );
+    });
+  })());
 });
 
 // Tapping the reminder opens the app on the relevant list.
