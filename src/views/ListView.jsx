@@ -1,9 +1,10 @@
-import { Bell, ChevronLeft, ChevronRight, Copy, ListTodo, MapPin, Plus, Receipt, Share2, Trash2, TrendingUp, X } from 'lucide-react';
+import { Bell, ChevronLeft, ChevronRight, Copy, FileCheck2, ListTodo, MapPin, Plus, Receipt, Share2, Trash2, TrendingUp, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatWhen, isRTL, t } from '../i18n.js';
 import { groupItems, suggest } from '../catalog.js';
 import { topHistory } from '../storage.js';
 import { IS_IOS, isStandalone } from '../push.js';
+import { buildShopPdf, sharePdf } from '../pdf.js';
 
 const APP_HINT_KEY = 'cartlab:appHintDismissed';
 import ItemRow from '../components/ItemRow.jsx';
@@ -150,6 +151,25 @@ function ListView({
     } catch {}
   };
 
+  // "Finish shop" — a PDF receipt of everything checked during this trip,
+  // via the share sheet (iOS) or a download (elsewhere).
+  const [finishBusy, setFinishBusy] = useState(false);
+  const finishShop = async () => {
+    if (inCart.length === 0) {
+      showScanMsg(t('finish_empty', lang));
+      return;
+    }
+    setFinishBusy(true);
+    try {
+      const { blob, filename } = await buildShopPdf(list, lang);
+      await sharePdf(blob, filename, list.name);
+    } catch {
+      showScanMsg(t('finish_failed', lang));
+    } finally {
+      setFinishBusy(false);
+    }
+  };
+
   const rowProps = (item) => ({
     item,
     lang,
@@ -230,6 +250,18 @@ function ListView({
           >
             <TrendingUp size={15} strokeWidth={2.5} />
             {t('prices_btn', lang)}
+          </button>
+          <button
+            onClick={finishShop}
+            disabled={finishBusy}
+            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold border ${
+              inCart.length > 0
+                ? 'bg-leaf text-cream border-leaf'
+                : 'bg-transparent text-ink/40 border-ink/20'
+            } ${finishBusy ? 'opacity-60' : ''}`}
+          >
+            <FileCheck2 size={15} strokeWidth={2.5} />
+            {t('finish_btn', lang)}
           </button>
         </div>
 
