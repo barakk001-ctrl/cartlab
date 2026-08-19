@@ -65,11 +65,12 @@ function ListView({
   const toBuy = items.filter((i) => !i.checked);
   const inCart = items.filter((i) => i.checked);
 
-  // Freshly checked items linger in a temporary "Just bought" section for 10
-  // minutes — right below "To buy", above the older cart items — so what was
+  // Freshly checked items linger in a temporary "Just bought" section for an
+  // hour — right below "To buy", above the older cart items — so what was
   // just grabbed stays in view (and is easy to un-check by mistake-tap). A
-  // slow tick ages them down into "In cart".
-  const TEMP_MS = 10 * 60 * 1000;
+  // slow tick ages them down into "In cart". The window covers a whole
+  // shopping trip: "Finish shop" exports exactly this section.
+  const TEMP_MS = 60 * 60 * 1000;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const handle = setInterval(() => setNow(Date.now()), 30000);
@@ -151,17 +152,18 @@ function ListView({
     } catch {}
   };
 
-  // "Finish shop" — a PDF receipt of everything checked during this trip,
-  // via the share sheet (iOS) or a download (elsewhere).
+  // "Finish shop" — a PDF receipt of this trip only: the "Just bought"
+  // items (checked within the last hour), via the share sheet (iOS) or a
+  // download (elsewhere).
   const [finishBusy, setFinishBusy] = useState(false);
   const finishShop = async () => {
-    if (inCart.length === 0) {
+    if (justBought.length === 0) {
       showScanMsg(t('finish_empty', lang));
       return;
     }
     setFinishBusy(true);
     try {
-      const { blob, filename } = await buildShopPdf(list, lang);
+      const { blob, filename } = await buildShopPdf(list, lang, justBought);
       await sharePdf(blob, filename, list.name);
     } catch {
       showScanMsg(t('finish_failed', lang));
@@ -255,7 +257,7 @@ function ListView({
             onClick={finishShop}
             disabled={finishBusy}
             className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold border ${
-              inCart.length > 0
+              justBought.length > 0
                 ? 'bg-leaf text-cream border-leaf'
                 : 'bg-transparent text-ink/40 border-ink/20'
             } ${finishBusy ? 'opacity-60' : ''}`}

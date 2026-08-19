@@ -58,9 +58,9 @@ function drawCheck(ctx, cx, cy, r) {
 }
 
 // Renders the bought items onto one or more A4 canvases.
-function renderPages(list, lang) {
+function renderPages(list, lang, items) {
   const rtl = isRTL(lang);
-  const bought = list.items
+  const bought = items
     .filter((i) => i.checked)
     .sort((a, b) => (a.checkedAt || 0) - (b.checkedAt || 0)); // in shop order
 
@@ -236,8 +236,10 @@ function wrapJpegsInPdf(jpegs) {
   return new Blob([out], { type: 'application/pdf' });
 }
 
-async function buildShopPdf(list, lang) {
-  const pages = renderPages(list, lang);
+// `items` narrows the export to one trip (the "Just bought" section);
+// defaults to everything checked.
+async function buildShopPdf(list, lang, items = list.items) {
+  const pages = renderPages(list, lang, items);
   const jpegs = [];
   for (const p of pages) jpegs.push(await jpegBytes(p.canvas));
   const date = new Date().toISOString().slice(0, 10);
