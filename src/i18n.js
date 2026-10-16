@@ -30,7 +30,7 @@ const STRINGS = {
     urgent: 'Urgent',
     urgent_mark: 'Mark as urgent',
     urgent_unmark: 'Remove urgent',
-    urgent_explain: 'Everyone sharing this list gets a notification right away, then a reminder every morning until it's bought.',
+    urgent_explain: 'Everyone sharing this list gets a notification right away, then a reminder every morning until it is bought.',
     all_done: 'All done!',
     undo: 'Undo',
     removed_one: 'Item removed',
