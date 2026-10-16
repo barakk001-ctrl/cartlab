@@ -2,11 +2,11 @@ import { t } from './i18n.js';
 import { itemQtyText } from './units.js';
 
 // Text that lands on the lock screen: the list name as title, the still-unbought
-// items (with quantities) as body.
+// next-trip items (with quantities) as body — "general" items are not for now.
 const buildReminderTitle = (list) => `🛒 ${list.name}`;
 
 function buildReminderBody(list, lang) {
-  const left = list.items.filter((i) => !i.checked);
+  const left = list.items.filter((i) => !i.checked && !i.later);
   if (!left.length) return t('notif_body_empty', lang);
   let s = left.map((i) => {
     const qty = itemQtyText(i, lang);

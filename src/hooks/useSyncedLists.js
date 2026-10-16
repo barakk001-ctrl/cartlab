@@ -29,6 +29,7 @@ const sharedItemBody = (i) => ({
   id: i.id, name: i.name, qty: i.qty, checked: i.checked, createdAt: i.createdAt,
   cat: i.cat || null, unit: i.unit || null, note: i.note || null, urgent: !!i.urgent,
   checkedAt: i.checkedAt ?? null, price: i.price ?? null, barcode: i.barcode || null,
+  later: !!i.later,
 });
 
 export function useSyncedLists() {
@@ -134,7 +135,8 @@ export function useSyncedLists() {
           return !prev || prev.name !== si.name || prev.qty !== si.qty
             || prev.checked !== si.checked || (prev.cat || null) !== (si.cat || null)
             || (prev.unit || null) !== (si.unit || null) || (prev.note || null) !== (si.note || null)
-            || !!prev.urgent !== !!si.urgent || (prev.price ?? null) !== (si.price ?? null);
+            || !!prev.urgent !== !!si.urgent || (prev.price ?? null) !== (si.price ?? null)
+            || !!prev.later !== !!si.later;
         })
         .map((i) => i.id));
     }
@@ -329,11 +331,12 @@ export function useSyncedLists() {
     );
   };
 
-  const addItem = (listId, name) => {
-    const item = { id: uid(), name, qty: 1, checked: false, hasPhoto: false, createdAt: Date.now() };
+  // later = true adds it to "general" (needed sometime) instead of the next trip.
+  const addItem = (listId, name, later = false) => {
+    const item = { id: uid(), name, qty: 1, checked: false, hasPhoto: false, createdAt: Date.now(), later: !!later };
     commit(
       listsRef.current.map((l) => (l.id === listId ? { ...l, items: [...l.items, item] } : l)),
-      { kind: 'putItem', listId, body: { id: item.id, name, qty: 1, checked: false, createdAt: item.createdAt } },
+      { kind: 'putItem', listId, body: { id: item.id, name, qty: 1, checked: false, createdAt: item.createdAt, later: !!later } },
     );
   };
 
@@ -350,7 +353,7 @@ export function useSyncedLists() {
     const nextLists = listsRef.current.map((l) =>
       l.id === listId ? { ...l, items: l.items.map((i) => (i.id === itemId ? next : i)) } : l);
     // Photo-only patches are device-local — update state without a server op.
-    const shared = ['name', 'qty', 'checked', 'cat', 'unit', 'note', 'urgent', 'price', 'barcode'].some((k) => k in patch);
+    const shared = ['name', 'qty', 'checked', 'cat', 'unit', 'note', 'urgent', 'price', 'barcode', 'later'].some((k) => k in patch);
     commit(nextLists, shared
       ? { kind: 'putItem', listId, body: sharedItemBody(next) }
       : null);
@@ -443,6 +446,7 @@ export function useSyncedLists() {
         ...keeper,
         qty: Math.min(999, Math.round(group.reduce((sum, i) => sum + i.qty, 0) * 100) / 100),
         checked: group.every((i) => i.checked),
+        later: group.every((i) => i.later),
       });
       removed.push(...group.filter((i) => i !== keeper));
     }

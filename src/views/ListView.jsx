@@ -1,4 +1,4 @@
-import { Bell, ChevronLeft, ChevronRight, Copy, FileCheck2, ListTodo, MapPin, Plus, Receipt, Share2, Trash2, TrendingUp, X } from 'lucide-react';
+import { Bell, ChevronLeft, ChevronRight, Copy, FileCheck2, ListTodo, MapPin, NotebookPen, Plus, Receipt, Share2, ShoppingCart, Trash2, TrendingUp, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatWhen, isRTL, t } from '../i18n.js';
 import { groupItems, suggest } from '../catalog.js';
@@ -7,6 +7,7 @@ import { IS_IOS, isStandalone } from '../push.js';
 import { buildShopPdf, sharePdf } from '../pdf.js';
 
 const APP_HINT_KEY = 'cartlab:appHintDismissed';
+const ADD_LATER_KEY = 'cartlab:addLater';
 import ItemRow from '../components/ItemRow.jsx';
 import ReminderModal from '../components/ReminderModal.jsx';
 import PhotoModal from '../components/PhotoModal.jsx';
@@ -16,11 +17,38 @@ import LocationModal from '../components/LocationModal.jsx';
 import PricesModal from '../components/PricesModal.jsx';
 import ReceiptModal from '../components/ReceiptModal.jsx';
 
+// Section title inside a list: bold, in the section's own colour, with a
+// matching bar and count badge, so the sections read apart at a glance.
+const TONES = {
+  leaf: { text: 'text-leaf', bar: 'bg-leaf', pill: 'bg-leaf/15' },
+  sea: { text: 'text-sea', bar: 'bg-sea', pill: 'bg-sea/15' },
+  ink: { text: 'text-ink/75', bar: 'bg-ink/40', pill: 'bg-ink/10' },
+};
+function SectionTitle({ tone = 'leaf', count, children, className = '' }) {
+  const c = TONES[tone];
+  return (
+    <h2 className={`flex items-center gap-2 text-[16px] font-extrabold ${c.text} ${className}`}>
+      <span className={`w-1.5 h-5 rounded-full ${c.bar}`} aria-hidden="true" />
+      <span>{children}</span>
+      <span className={`text-[12px] font-bold rounded-full px-2 py-0.5 ${c.pill}`}>{count}</span>
+    </h2>
+  );
+}
+
 function ListView({
   lang, list, knownNames, remoteTouched, onBack, onAddItem, onPatchItem, onRemoveItem,
   onClearChecked, onSetReminder, onSetPhoto, onRemovePhoto, onDedupe, onDelete,
 }) {
   const [draft, setDraft] = useState('');
+  // Where new items go: the next trip (default) or "general" — needed sometime.
+  // Remembered per device, so someone collecting "general" items keeps doing so.
+  const [addLater, setAddLater] = useState(() => {
+    try { return window.localStorage.getItem(ADD_LATER_KEY) === '1'; } catch { return false; }
+  });
+  const chooseAddLater = (v) => {
+    setAddLater(v);
+    try { window.localStorage.setItem(ADD_LATER_KEY, v ? '1' : ''); } catch {}
+  };
   const [reminderOpen, setReminderOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [locOpen, setLocOpen] = useState(false);
@@ -62,7 +90,11 @@ function ListView({
 
   const BackIcon = isRTL(lang) ? ChevronRight : ChevronLeft;
   const items = list.items;
-  const toBuy = items.filter((i) => !i.checked);
+  // Unchecked items split into the next trip and "general" (needed sometime).
+  // An urgent item is always next trip, whatever its flag says.
+  const isGeneral = (i) => i.later && !i.urgent;
+  const toBuy = items.filter((i) => !i.checked && !isGeneral(i));
+  const general = items.filter((i) => !i.checked && isGeneral(i));
   const inCart = items.filter((i) => i.checked);
 
   // Freshly checked items linger in a temporary "Just bought" section for an
@@ -117,7 +149,7 @@ function ListView({
   const addItem = (name = draft) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    onAddItem(trimmed);
+    onAddItem(trimmed, addLater);
     setDraft('');
   };
 
@@ -290,6 +322,24 @@ function ListView({
         </div>
       )}
 
+      {/* Where the next added item goes */}
+      <div className="flex gap-1 mb-2 p-1 bg-surface/70 border border-ink/15 rounded-xl" role="radiogroup">
+        {[[false, ShoppingCart, 'add_to_next'], [true, NotebookPen, 'add_to_general']].map(([v, Icon, key]) => (
+          <button
+            key={key}
+            role="radio"
+            aria-checked={addLater === v}
+            onClick={() => chooseAddLater(v)}
+            className={`flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-semibold ${
+              addLater === v ? 'bg-leaf text-cream' : 'text-ink/60'
+            }`}
+          >
+            <Icon size={15} strokeWidth={2.5} />
+            {t(key, lang)}
+          </button>
+        ))}
+      </div>
+
       {/* Add item, with autocomplete from the catalog + past items */}
       <div className="relative mb-6">
         <div className="flex gap-2">
@@ -353,9 +403,7 @@ function ListView({
       {toBuy.length > 0 && (
         <section className="mb-6">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="f-mono text-[11px] uppercase tracking-[0.25em] opacity-50">
-              {t('to_buy', lang)} — {toBuy.length}
-            </h2>
+            <SectionTitle tone="leaf" count={toBuy.length}>{t('to_buy', lang)}</SectionTitle>
             {hasDupes && (
               <button onClick={onDedupe} className="text-xs text-leaf font-semibold">
                 {t('merge_dupes', lang)}
@@ -364,7 +412,7 @@ function ListView({
           </div>
           {urgentItems.length > 0 && (
             <div className="mb-3">
-              <h3 className="text-xs font-bold text-rust text-center mb-1.5">
+              <h3 className="text-sm font-extrabold text-rust text-center mb-1.5">
                 🚨 {t('urgent', lang)}
               </h3>
               <div className="space-y-2">
@@ -375,7 +423,7 @@ function ListView({
           {groups.map((group) => (
             <div key={group.key} className="mb-3 last:mb-0">
               {showGroupHeaders && (
-                <h3 className="text-xs font-bold text-leaf/80 text-center mb-1.5">
+                <h3 className="text-[13px] font-extrabold text-leaf text-center mb-1.5">
                   {group.label}
                 </h3>
               )}
@@ -387,12 +435,20 @@ function ListView({
         </section>
       )}
 
+      {general.length > 0 && (
+        <section className="mb-6">
+          <SectionTitle tone="sea" count={general.length} className="mb-1">{t('general_section', lang)}</SectionTitle>
+          <p className="text-[11px] opacity-55 mb-2">{t('general_hint', lang)}</p>
+          <div className="space-y-2 opacity-80">
+            {general.map((item) => <ItemRow key={item.id} {...rowProps(item)} />)}
+          </div>
+        </section>
+      )}
+
       {justBought.length > 0 && (
         <section className="mb-6">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="f-mono text-[11px] uppercase tracking-[0.25em] opacity-50">
-              {t('just_bought', lang)} — {justBought.length}
-            </h2>
+            <SectionTitle tone="leaf" count={justBought.length}>{t('just_bought', lang)}</SectionTitle>
             {boughtEarlier.length === 0 && (
               <button onClick={onClearChecked} className="text-xs text-rust font-semibold">
                 {t('clear_checked', lang)}
@@ -408,9 +464,7 @@ function ListView({
       {boughtEarlier.length > 0 && (
         <section>
           <div className="flex items-center justify-between mb-2">
-            <h2 className="f-mono text-[11px] uppercase tracking-[0.25em] opacity-50">
-              {t('in_cart', lang)} — {boughtEarlier.length}
-            </h2>
+            <SectionTitle tone="ink" count={boughtEarlier.length}>{t('in_cart', lang)}</SectionTitle>
             <button onClick={onClearChecked} className="text-xs text-rust font-semibold">
               {t('clear_checked', lang)}
             </button>

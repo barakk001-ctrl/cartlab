@@ -182,6 +182,9 @@ function parseItem(raw) {
     unit: UNITS.has(raw.unit) ? raw.unit : null,
     note: typeof raw.note === 'string' && raw.note.trim() ? raw.note.trim().slice(0, 300) : null,
     urgent: !!raw.urgent,
+    // "General" — needed sometime, not on the next trip. Urgent always means
+    // the next trip, so an urgent item is never general.
+    later: !!raw.later && !raw.urgent,
     // when it was checked off (drives the "Just bought" section); clamped so
     // a bad clock can't pin an item there forever
     checkedAt: raw.checked && Number.isFinite(checkedAt) && checkedAt > 0
@@ -620,7 +623,7 @@ app.get('/api/lists/:id/alert', guard((req, res) => {
   res.type('text/plain; charset=utf-8');
   const list = store.getList(id);
   if (!list) return res.status(404).send('');
-  const left = list.items.filter((i) => !i.checked);
+  const left = list.items.filter((i) => !i.checked && !i.later); // the next trip, not "general"
   const min = Math.max(1, Math.min(500, Number(req.query.min) || 1));
   if (left.length < min) return res.send('');
   const items = itemsText(left, req.query.lang === 'he');

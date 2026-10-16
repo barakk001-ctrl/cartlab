@@ -82,10 +82,14 @@ export function openStore(dataDir) {
   // When the item was checked off — drives the client's temporary
   // "Just bought" section (recently checked items shown above older ones).
   try { db.exec('ALTER TABLE items ADD COLUMN checked_at INTEGER'); } catch {}
-  // Server-owned re-bump bookkeeping: when the item turned urgent, and when
-  // its notification was last (re)sent. Not exposed to clients.
+  // Server-owned: when the item turned urgent (the morning digest starts the
+  // day after). urgent_bumped_at is a leftover of the retired 30-minute re-send.
+  // Not exposed to clients.
   try { db.exec('ALTER TABLE items ADD COLUMN urgent_at INTEGER'); } catch {}
   try { db.exec('ALTER TABLE items ADD COLUMN urgent_bumped_at INTEGER'); } catch {}
+  // "General" (later = 1): needed sometime, not on the next trip. Listed in
+  // its own section under the next-buy items.
+  try { db.exec('ALTER TABLE items ADD COLUMN later INTEGER NOT NULL DEFAULT 0'); } catch {}
   // Shelf price + product barcode; price changes append to the prices table.
   try { db.exec('ALTER TABLE items ADD COLUMN price REAL'); } catch {}
   try { db.exec('ALTER TABLE items ADD COLUMN barcode TEXT'); } catch {}
@@ -95,7 +99,7 @@ export function openStore(dataDir) {
 
   const q = {
     getMeta: db.prepare('SELECT id, name, created_at, reminder_at, version FROM lists WHERE id = ?'),
-    getItems: db.prepare('SELECT id, name, qty, checked, created_at, has_photo, photo_rev, cat, unit, note, urgent, checked_at, price, barcode FROM items WHERE list_id = ? ORDER BY created_at, id'),
+    getItems: db.prepare('SELECT id, name, qty, checked, created_at, has_photo, photo_rev, cat, unit, note, urgent, checked_at, price, barcode, later FROM items WHERE list_id = ? ORDER BY created_at, id'),
     itemPrev: db.prepare('SELECT urgent, price FROM items WHERE list_id = ? AND id = ?'),
     getPhotoMeta: db.prepare('SELECT has_photo, photo_rev FROM items WHERE list_id = ? AND id = ?'),
     setPhotoMeta: db.prepare('UPDATE items SET has_photo = ?, photo_rev = photo_rev + 1 WHERE list_id = ? AND id = ?'),
@@ -109,11 +113,12 @@ export function openStore(dataDir) {
     deleteList: db.prepare('DELETE FROM lists WHERE id = ?'),
     clearItems: db.prepare('DELETE FROM items WHERE list_id = ?'),
     upsertItem: db.prepare(`
-      INSERT INTO items (list_id, id, name, qty, checked, created_at, cat, unit, note, urgent, checked_at, price, barcode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO items (list_id, id, name, qty, checked, created_at, cat, unit, note, urgent, checked_at, price, barcode, later) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(list_id, id) DO UPDATE SET
         name = excluded.name, qty = excluded.qty, checked = excluded.checked,
         cat = excluded.cat, unit = excluded.unit, note = excluded.note, urgent = excluded.urgent,
-        checked_at = excluded.checked_at, price = excluded.price, barcode = excluded.barcode
+        checked_at = excluded.checked_at, price = excluded.price, barcode = excluded.barcode,
+        later = excluded.later
     `),
     deleteItem: db.prepare('DELETE FROM items WHERE list_id = ? AND id = ?'),
     setSub: db.prepare(`
@@ -166,6 +171,7 @@ export function openStore(dataDir) {
         id: i.id, name: i.name, qty: i.qty, checked: !!i.checked, createdAt: i.created_at,
         hasPhoto: !!i.has_photo, photoRev: i.photo_rev, cat: i.cat, unit: i.unit, note: i.note,
         urgent: !!i.urgent, checkedAt: i.checked_at, price: i.price, barcode: i.barcode,
+        later: !!i.later,
       })),
     };
   }
@@ -188,7 +194,7 @@ export function openStore(dataDir) {
       q.clearItems.run(id);
       const base = Date.now();
       kept.forEach((it, i) =>
-        q.upsertItem.run(id, it.id, it.name, it.qty, it.checked ? 1 : 0, it.createdAt ?? base + i, it.cat ?? null, it.unit ?? null, it.note ?? null, it.urgent ? 1 : 0, it.checkedAt ?? null, it.price ?? null, it.barcode ?? null));
+        q.upsertItem.run(id, it.id, it.name, it.qty, it.checked ? 1 : 0, it.createdAt ?? base + i, it.cat ?? null, it.unit ?? null, it.note ?? null, it.urgent ? 1 : 0, it.checkedAt ?? null, it.price ?? null, it.barcode ?? null, it.later ? 1 : 0));
       for (const pid of oldPhotos) {
         if (keptIds.has(pid)) q.setPhotoMeta.run(1, id, pid);
       }
@@ -232,7 +238,7 @@ export function openStore(dataDir) {
       if (!prev && q.countItems.get(listId).n >= MAX_ITEMS) {
         throw err(400, 'too many items');
       }
-      q.upsertItem.run(listId, item.id, item.name, item.qty, item.checked ? 1 : 0, item.createdAt ?? Date.now(), item.cat ?? null, item.unit ?? null, item.note ?? null, item.urgent ? 1 : 0, item.checkedAt ?? null, item.price ?? null, item.barcode ?? null);
+      q.upsertItem.run(listId, item.id, item.name, item.qty, item.checked ? 1 : 0, item.createdAt ?? Date.now(), item.cat ?? null, item.unit ?? null, item.note ?? null, item.urgent ? 1 : 0, item.checkedAt ?? null, item.price ?? null, item.barcode ?? null, item.later ? 1 : 0);
       const becameUrgent = !!item.urgent && !item.checked && !prev?.urgent;
       // When it turned urgent: the morning digest picks it up from the next day.
       const now = Date.now();

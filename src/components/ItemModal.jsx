@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, ScanBarcode, Tag, X } from 'lucide-react';
+import { AlertTriangle, ArrowDownUp, Check, ScanBarcode, Tag, X } from 'lucide-react';
 import { useState } from 'react';
 import { isRTL, t } from '../i18n.js';
 import { categorize, categoryLabel, categoryOptions } from '../catalog.js';
@@ -47,7 +47,8 @@ function ItemModal({ lang, listId, item, onClose, onPatch }) {
   // this device into urgent alerts.
   const toggleUrgent = () => {
     const next = !item.urgent;
-    onPatch({ urgent: next });
+    // urgent means the next trip, so it leaves "general"
+    onPatch(next ? { urgent: true, later: false } : { urgent: false });
     if (next) {
       ensureNotifyPermission().then((granted) => {
         if (granted) subscribeUrgentAlerts(listId, lang);
@@ -95,6 +96,16 @@ function ItemModal({ lang, listId, item, onClose, onPatch }) {
             {t(item.urgent ? 'urgent_unmark' : 'urgent_mark', lang)}
           </button>
           <p className="text-[11px] opacity-55 mt-1.5">{t('urgent_explain', lang)}</p>
+          {/* Next trip ⇄ general. Hidden for urgent items: those are always next trip. */}
+          {!item.urgent && !item.checked && (
+            <button
+              onClick={() => { onPatch({ later: !item.later, ...fieldsPatch() }); onClose(); }}
+              className="mt-2.5 w-full flex items-center justify-center gap-2 rounded-xl border border-leaf/40 text-leaf px-3 py-2.5 text-sm font-semibold"
+            >
+              <ArrowDownUp size={15} strokeWidth={2.5} />
+              {t(item.later ? 'move_to_next' : 'move_to_general', lang)}
+            </button>
+          )}
         </div>
 
         <div className="px-4 pt-3 pb-1">

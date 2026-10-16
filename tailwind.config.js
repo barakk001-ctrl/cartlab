@@ -11,6 +11,7 @@ export default {
         leaf: 'rgb(var(--c-leaf) / <alpha-value>)',
         rust: 'rgb(var(--c-rust) / <alpha-value>)',
         sand: 'rgb(var(--c-sand) / <alpha-value>)',
+        sea: 'rgb(var(--c-sea) / <alpha-value>)',
         surface: 'rgb(var(--c-surface) / <alpha-value>)',
       },
     },

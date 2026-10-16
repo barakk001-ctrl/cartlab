@@ -9,7 +9,7 @@ function ExportModal({ lang, list, onClose }) {
   const [copied, setCopied] = useState(false);
   // Target Reminders list — remembered across exports (e.g. "קניות").
   const [target, setTarget] = useState(() => loadRemindersListName() || list.name);
-  const hasItems = list.items.some((i) => !i.checked);
+  const hasItems = list.items.some((i) => !i.checked && !i.later);
 
   const send = () => {
     saveRemindersListName(target.trim());

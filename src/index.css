@@ -11,6 +11,7 @@
   --c-leaf: 62 107 74;      /* primary green */
   --c-rust: 180 85 45;      /* destructive orange */
   --c-sand: 231 223 206;
+  --c-sea: 38 99 150;       /* "general" section */
   --c-surface: 255 255 255; /* cards/inputs, used at /70 over cream */
 }
 
@@ -21,6 +22,7 @@
     --c-leaf: 130 172 142;
     --c-rust: 214 126 88;
     --c-sand: 55 53 47;
+    --c-sea: 120 168 214;
     --c-surface: 56 54 48;
   }
 }

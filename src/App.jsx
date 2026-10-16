@@ -122,7 +122,7 @@ export default function App() {
             knownNames={knownNames}
             remoteTouched={remoteTouched}
             onBack={() => openList(null)}
-            onAddItem={(name) => addItem(active.id, name)}
+            onAddItem={(name, later) => addItem(active.id, name, later)}
             onPatchItem={(itemId, patch) => patchItem(active.id, itemId, patch)}
             onRemoveItem={(itemId) => removeItem(active.id, itemId)}
             onClearChecked={() => clearChecked(active.id)}

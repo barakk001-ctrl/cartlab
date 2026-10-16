@@ -16,7 +16,7 @@ const SHORTCUT_NAME = 'CartLab';
 
 function buildExportText(list, lang) {
   return list.items
-    .filter((i) => !i.checked)
+    .filter((i) => !i.checked && !i.later) // the next trip, not "general"
     .map((i) => {
       const qty = itemQtyText(i, lang);
       return qty ? `${i.name} ${qty}` : i.name;
