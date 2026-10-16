@@ -322,16 +322,16 @@ function itemsText(items, he) {
 // Local wall-clock date + hour for an IANA timezone (falls back to UTC when
 // the stored tz is missing or invalid). DST-proof because Intl resolves the
 // zone's rules at each call.
-function localParts(tz) {
+function localParts(tz, at = Date.now()) {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: tz || 'UTC',
       year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
-    }).formatToParts(new Date());
+    }).formatToParts(new Date(at));
     const get = (type) => parts.find((p) => p.type === type)?.value;
     return { date: `${get('year')}-${get('month')}-${get('day')}`, hour: Number(get('hour')) };
   } catch {
-    return localParts('UTC');
+    return localParts('UTC', at);
   }
 }
 
@@ -360,15 +360,13 @@ app.post('/api/lists/:id/subscribe', guard((req, res) => {
 
 // Fire-and-forget fan-out. A 404/410 from the push service means the
 // subscription is dead — drop it so the list doesn't accumulate corpses.
-async function notifyUrgent(listId, item, rebump = false) {
+async function notifyUrgent(listId, item) {
   const list = store.getList(listId);
   if (!list) return;
   for (const sub of store.getSubs(listId)) {
     const he = sub.lang === 'he';
     const title = he ? `🚨 דחוף: ${item.name}` : `🚨 Urgent: ${item.name}`;
-    let body = rebump
-      ? (he ? `עדיין מחכה ברשימה "${list.name}"` : `Still waiting on "${list.name}"`)
-      : (he ? `נוסף לרשימה "${list.name}"` : `Added to "${list.name}"`);
+    let body = he ? `נוסף לרשימה "${list.name}"` : `Added to "${list.name}"`;
     if (item.note) body += ` — ${item.note}`;
     try {
       await webpush.sendNotification(
@@ -383,8 +381,15 @@ async function notifyUrgent(listId, item, rebump = false) {
   }
 }
 
+// An urgent item notifies once, the moment it is marked, and then only through
+// this morning digest until it is bought or un-marked. (It used to re-send every
+// 30 minutes for 3 hours as well, which was too much.)
+//
 // Morning digest: every day at 7:00 (device-local time), each subscribed
 // device gets one notification per list that still has unbought urgent items.
+// An item joins the digest from the morning AFTER the day it was marked: marked
+// at 9:00, it would otherwise get its alert and then that same morning's digest
+// a minute later.
 // A minute-scan checks each subscription's local clock; last_daily (a local
 // date, marked before sending so a failure can't retry-spam) makes it
 // once-per-day, and the window runs until noon so a server restart during
@@ -392,23 +397,8 @@ async function notifyUrgent(listId, item, rebump = false) {
 const DAILY_FROM_HOUR = 7;
 const DAILY_UNTIL_HOUR = 12;
 
-// Re-bump: while an urgent item stays unbought, its notification is re-sent
-// every 30 minutes for 3 hours after it was marked. The per-item tag makes
-// each re-send *replace* the previous notification, so it jumps back to the
-// top of the lock-screen stack (the closest thing web push has to pinning)
-// instead of piling up. Buying or un-marking the item stops the nagging.
-// Env overrides exist for tests only.
+// Env override exists for tests only.
 const URGENT_SCAN_MS = parseInt(process.env.URGENT_SCAN_MS || '60000', 10);
-const REBUMP_EVERY_MS = parseInt(process.env.URGENT_REBUMP_EVERY_MS || String(30 * 60000), 10);
-const REBUMP_WINDOW_MS = parseInt(process.env.URGENT_REBUMP_WINDOW_MS || String(3 * 3600000), 10);
-
-async function rebumpScan() {
-  const now = Date.now();
-  for (const item of store.bumpDue(now - REBUMP_WINDOW_MS, now - REBUMP_EVERY_MS)) {
-    store.markBumped(item.listId, item.id, now); // mark first — a failed send shouldn't retry-spam
-    await notifyUrgent(item.listId, item, true);
-  }
-}
 
 async function dailyUrgentScan() {
   for (const listId of store.urgentListIds()) {
@@ -417,15 +407,19 @@ async function dailyUrgentScan() {
       const { date, hour } = localParts(sub.tz);
       if (hour < DAILY_FROM_HOUR || hour >= DAILY_UNTIL_HOUR || sub.lastDaily === date) continue;
       list ??= store.getList(listId);
+      const since = store.urgentSince(listId);
       const urgent = list?.items.filter((i) => i.urgent && !i.checked) || [];
       if (!urgent.length) break;
+      // marked before today on this device's clock (no timestamp: older data, include)
+      const due = urgent.filter((i) => since[i.id] == null || localParts(sub.tz, since[i.id]).date < date);
+      if (!due.length) continue;
       store.setSubDaily(listId, sub.deviceId, date);
       const he = sub.lang === 'he';
       const title = he ? `🚨 עדיין דחוף — ${list.name}` : `🚨 Still urgent — ${list.name}`;
       try {
         await webpush.sendNotification(
           sub.subscription,
-          JSON.stringify({ title, body: itemsText(urgent, he), url: `/#list=${listId}`, tag: `cartlab-daily-${listId}` }),
+          JSON.stringify({ title, body: itemsText(due, he), url: `/#list=${listId}`, tag: `cartlab-daily-${listId}` }),
           { TTL: 4 * 3600 },
         );
       } catch (e) {
@@ -439,7 +433,6 @@ async function dailyUrgentScan() {
 if (pushEnabled) {
   setInterval(() => {
     dailyUrgentScan().catch((e) => console.warn('daily scan failed:', e.message));
-    rebumpScan().catch((e) => console.warn('rebump scan failed:', e.message));
   }, URGENT_SCAN_MS).unref();
 }
 

@@ -126,11 +126,7 @@ export function openStore(dataDir) {
     urgentListIds: db.prepare('SELECT DISTINCT list_id FROM items WHERE urgent = 1 AND checked = 0'),
     setUrgentAt: db.prepare('UPDATE items SET urgent_at = ?, urgent_bumped_at = ? WHERE list_id = ? AND id = ?'),
     clearUrgentAt: db.prepare('UPDATE items SET urgent_at = NULL, urgent_bumped_at = NULL WHERE list_id = ? AND id = ?'),
-    bumpDue: db.prepare(`
-      SELECT list_id, id, name, note FROM items
-      WHERE urgent = 1 AND checked = 0 AND urgent_at IS NOT NULL AND urgent_at > ? AND urgent_bumped_at <= ?
-    `),
-    markBumped: db.prepare('UPDATE items SET urgent_bumped_at = ? WHERE list_id = ? AND id = ?'),
+    urgentSince: db.prepare('SELECT id, urgent_at FROM items WHERE list_id = ? AND urgent = 1 AND checked = 0'),
     addPrice: db.prepare('INSERT INTO prices (list_id, name_key, name, price, currency, at, store) VALUES (?, ?, ?, ?, ?, ?, ?)'),
     setItemPrice: db.prepare('UPDATE items SET price = ? WHERE list_id = ? AND id = ?'),
     getPrices: db.prepare('SELECT name_key, name, price, currency, at, store FROM prices WHERE list_id = ? ORDER BY name_key, at'),
@@ -238,8 +234,7 @@ export function openStore(dataDir) {
       }
       q.upsertItem.run(listId, item.id, item.name, item.qty, item.checked ? 1 : 0, item.createdAt ?? Date.now(), item.cat ?? null, item.unit ?? null, item.note ?? null, item.urgent ? 1 : 0, item.checkedAt ?? null, item.price ?? null, item.barcode ?? null);
       const becameUrgent = !!item.urgent && !item.checked && !prev?.urgent;
-      // Anchor the re-bump window at the transition; the initial notification
-      // goes out right after this write, so it counts as the first bump.
+      // When it turned urgent: the morning digest picks it up from the next day.
       const now = Date.now();
       if (becameUrgent) q.setUrgentAt.run(now, now, listId, item.id);
       else if (!item.urgent) q.clearUrgentAt.run(listId, item.id);
@@ -301,9 +296,9 @@ export function openStore(dataDir) {
 
   // Urgent items due for a notification re-bump: still urgent + unbought,
   // marked after `oldestAt`, last sent before `bumpedBefore`.
-  const bumpDue = (oldestAt, bumpedBefore) =>
-    q.bumpDue.all(oldestAt, bumpedBefore).map((r) => ({ listId: r.list_id, id: r.id, name: r.name, note: r.note }));
-  const markBumped = (listId, itemId, at) => { q.markBumped.run(at, listId, itemId); };
+  // itemId → when it was marked urgent, for the morning digest's "from tomorrow" rule
+  const urgentSince = (listId) =>
+    Object.fromEntries(q.urgentSince.all(listId).map((r) => [r.id, r.urgent_at]));
 
   // ---- price history ----
   // One row per observed price. Keyed by barcode when the item has one (the
@@ -388,7 +383,7 @@ export function openStore(dataDir) {
   return {
     getList, upsertList, patchList, deleteList, upsertItem, deleteItems,
     setPhoto, removePhoto, getPhotoFile,
-    setSub, getSubs, removeSub, setSubDaily, urgentListIds, bumpDue, markBumped,
+    setSub, getSubs, removeSub, setSubDaily, urgentListIds, urgentSince,
     getPriceHistory, recordReceiptPrices,
   };
 }
